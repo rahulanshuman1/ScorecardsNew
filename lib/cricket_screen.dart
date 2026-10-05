@@ -25,6 +25,8 @@ class _CricketScreenState extends State<CricketScreen> {
   bool _asking = false;
   bool _tv = false;
   bool _tvControls = true;
+  bool _tvCard = false;
+  int _tvInn = 0;
   final _tvFocus = FocusNode();
   final _fx = GlobalKey<EventOverlayState>();
 
@@ -45,6 +47,7 @@ class _CricketScreenState extends State<CricketScreen> {
     setState(() {
       _tv = true;
       _tvControls = true;
+      _tvCard = false;
     });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _tvFocus.requestFocus();
@@ -83,6 +86,17 @@ class _CricketScreenState extends State<CricketScreen> {
       _act(m.undo);
     } else if (k == LogicalKeyboardKey.keyH) {
       setState(() => _tvControls = !_tvControls);
+    } else if (k == LogicalKeyboardKey.keyS) {
+      setState(() {
+        _tvCard = !_tvCard;
+        _tvInn = m.current;
+      });
+    } else if (k == LogicalKeyboardKey.keyR) {
+      _retire();
+    } else if (k == LogicalKeyboardKey.arrowLeft) {
+      setState(() => _tvInn = 0);
+    } else if (k == LogicalKeyboardKey.arrowRight) {
+      setState(() => _tvInn = 1);
     } else if (k == LogicalKeyboardKey.escape) {
       _exitTv();
     } else {
@@ -119,6 +133,14 @@ class _CricketScreenState extends State<CricketScreen> {
           onEndInnings: _endInnings,
           onToggleControls: () => setState(() => _tvControls = !_tvControls),
           onExit: _exitTv,
+          showCard: _tvCard,
+          cardInnings: _tvInn,
+          onCardInnings: (k) => setState(() => _tvInn = k),
+          onToggleCard: () => setState(() {
+            _tvCard = !_tvCard;
+            _tvInn = m.current;
+          }),
+          onRetire: _retire,
         ),
       ),
     );

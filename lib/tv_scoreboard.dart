@@ -21,6 +21,10 @@ class CricketTvBoard extends StatelessWidget {
   final void Function(String type) onExtra; // tap: wd / nb direct, b / lb dialog
   final void Function(String type) onExtraLong; // long-press: choose runs
   final VoidCallback onWicket, onUndo, onTimeout, onEndInnings, onToggleControls, onExit;
+  final bool showCard; // full scorecard view instead of live view
+  final int cardInnings; // 0 or 1
+  final void Function(int innings) onCardInnings;
+  final VoidCallback onToggleCard, onRetire;
 
   const CricketTvBoard({
     super.key,
@@ -36,6 +40,11 @@ class CricketTvBoard extends StatelessWidget {
     required this.onEndInnings,
     required this.onToggleControls,
     required this.onExit,
+    required this.showCard,
+    required this.cardInnings,
+    required this.onCardInnings,
+    required this.onToggleCard,
+    required this.onRetire,
   });
 
   static const _gold = Color(0xFFFFC107);
@@ -137,14 +146,19 @@ class CricketTvBoard extends StatelessWidget {
       constraints: BoxConstraints(minWidth: size),
       height: size,
       padding: EdgeInsets.symmetric(horizontal: size * 0.25),
-      alignment: Alignment.center,
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(size / 2)),
-      child: Text(txt,
-          style: TextStyle(
-              fontSize: size * 0.46,
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              decoration: TextDecoration.none)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(txt,
+              style: TextStyle(
+                  fontSize: size * 0.46,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  decoration: TextDecoration.none)),
+        ],
+      ),
     );
   }
 
@@ -221,9 +235,10 @@ class CricketTvBoard extends StatelessWidget {
                 final wide = box.maxWidth / box.maxHeight > 1.25;
                 if (wide) {
                   final u = math.min(box.maxWidth / 1280, box.maxHeight / 720);
-                  return _wide(u);
+                  return showCard ? _cardWide(u) : _wide(u);
                 }
-                return _narrow(box.maxWidth / 720);
+                final un = box.maxWidth / 720;
+                return showCard ? _cardNarrow(un) : _narrow(un);
               }),
               if (!showControls)
                 Positioned(
@@ -387,15 +402,26 @@ class CricketTvBoard extends StatelessWidget {
         SizedBox(height: 14 * u),
         status,
         SizedBox(height: 14 * u),
-        Row(children: [
-          _t('THIS OVER', 15 * u, color: Colors.white60, ls: 3 * u, w: FontWeight.w700),
-          SizedBox(width: 16 * u),
-          Expanded(
-            child: Wrap(spacing: 8 * u, runSpacing: 6 * u, children: [
-              for (final b in over) _bubble(b, 44 * u),
-            ]),
-          ),
-        ]),
+        SizedBox(
+          height: 48 * u,
+          child: Row(children: [
+            _t('THIS OVER', 15 * u, color: Colors.white60, ls: 3 * u, w: FontWeight.w700),
+            SizedBox(width: 16 * u),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  for (final b in over)
+                    Padding(
+                      padding: EdgeInsets.only(right: 8 * u),
+                      child: _bubble(b, 44 * u),
+                    ),
+                ]),
+              ),
+            ),
+          ]),
+        ),
       ]),
     );
   }
@@ -541,6 +567,241 @@ class CricketTvBoard extends StatelessWidget {
     );
   }
 
+  // ---------------------------------------------------------- full scorecard
+
+  int _cardIdx() {
+    final k = cardInnings.clamp(0, 1).toInt();
+    if (k == 1 && m.current == 0 && m.innings[1].balls.isEmpty) return 0;
+    return k;
+  }
+
+  List<String> _fow(Innings inn) {
+    final out = <String>[];
+    var total = 0, wk = 0, legal = 0;
+    for (final b in inn.balls) {
+      total += b.total;
+      if (b.legal) legal++;
+      if (b.wicket) {
+        wk++;
+        out.add('$wk-$total (${b.out ?? 'Batter'}, ${legal ~/ 6}.${legal % 6} ov)');
+      }
+    }
+    return out;
+  }
+
+  Widget _innChip(String label, bool sel, bool enabled, VoidCallback onTap, double u) => Padding(
+        padding: EdgeInsets.only(left: 10 * u),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(20 * u),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 18 * u, vertical: 8 * u),
+            decoration: BoxDecoration(
+              color: sel ? _accent : Colors.white.withAlpha(enabled ? 30 : 12),
+              borderRadius: BorderRadius.circular(20 * u),
+            ),
+            child: _t(label, 17 * u,
+                w: _heavy, ls: 2 * u, color: enabled ? null : Colors.white38),
+          ),
+        ),
+      );
+
+  Widget _cardHeader(double u) {
+    final has2 = !(m.current == 0 && m.innings[1].balls.isEmpty);
+    final k = _cardIdx();
+    return Row(children: [
+      _LiveBadge(u: u),
+      SizedBox(width: 16 * u),
+      Expanded(child: _t('FULL SCORECARD  •  ${m.teamA} vs ${m.teamB}', 28 * u, w: _heavy, ls: 1)),
+      _innChip('INNINGS 1', k == 0, true, () => onCardInnings(0), u),
+      _innChip('INNINGS 2', k == 1, has2, () => onCardInnings(1), u),
+    ]);
+  }
+
+  Widget _cardSummary(double u) {
+    final k = _cardIdx();
+    final i = m.innings[k];
+    final team = k == 0 ? m.teamA : m.teamB;
+    return _card(
+      u,
+      Row(children: [
+        Container(
+          width: 8 * u,
+          height: 56 * u,
+          decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(4 * u)),
+        ),
+        SizedBox(width: 14 * u),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            _t(team.toUpperCase(), 34 * u, w: _heavy, ls: 2 * u),
+            _t(m.finished ? m.result.toUpperCase() : 'INNINGS ${k + 1}', 16 * u,
+                color: m.finished ? _gold : Colors.white70, ls: 3 * u, w: FontWeight.w700),
+          ]),
+        ),
+        _t('${i.runs}/${i.wickets}', 74 * u, w: FontWeight.w900, color: _gold),
+        SizedBox(width: 26 * u),
+        _stat('OVERS', i.overs, u),
+        SizedBox(width: 26 * u),
+        _stat('RUN RATE', i.runRate.toStringAsFixed(2), u),
+        SizedBox(width: 26 * u),
+        _stat('EXTRAS', '${i.extras}', u),
+      ]),
+      pad: EdgeInsets.symmetric(horizontal: 24 * u, vertical: 14 * u),
+    );
+  }
+
+  Widget _battingSheet(Innings i, String team) {
+    const wR = 70.0, wB = 60.0, w4 = 52.0, w6 = 52.0, wSR = 92.0;
+    final stats = i.batting;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Expanded(child: _t('BATTING', 18, color: Colors.white54, ls: 3, w: FontWeight.w700)),
+        _col('R', 18, wR, color: Colors.white54, w: FontWeight.w700),
+        _col('B', 18, wB, color: Colors.white54, w: FontWeight.w700),
+        _col('4s', 18, w4, color: Colors.white54, w: FontWeight.w700),
+        _col('6s', 18, w6, color: Colors.white54, w: FontWeight.w700),
+        _col('SR', 18, wSR, color: Colors.white54, w: FontWeight.w700),
+      ]),
+      const Divider(color: Colors.white24, height: 16),
+      if (stats.isEmpty) _t('Yet to bat', 22, color: Colors.white54),
+      for (final s in stats)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(children: [
+            _avatar(team, s.name, 44),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _t('${s.name}${s.out ? '' : ' *'}', 26, w: _heavy),
+                _t(s.how ?? 'not out', 16, color: s.how == null ? _gold : Colors.white60),
+              ]),
+            ),
+            _col('${s.runs}', 28, wR, w: _heavy, color: s.how == null ? _gold : null),
+            _col('${s.balls}', 22, wB, color: Colors.white70),
+            _col('${s.fours}', 22, w4, color: Colors.white70),
+            _col('${s.sixes}', 22, w6, color: Colors.white70),
+            _col(s.sr.toStringAsFixed(1), 22, wSR, color: Colors.white70),
+          ]),
+        ),
+    ]);
+  }
+
+  Widget _bowlingSheet(Innings i, String bowlTeam) {
+    const wO = 64.0, wR = 56.0, wW = 50.0, wE = 84.0;
+    final fow = _fow(i);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Expanded(child: _t('BOWLING', 18, color: Colors.white54, ls: 3, w: FontWeight.w700)),
+        _col('O', 18, wO, color: Colors.white54, w: FontWeight.w700),
+        _col('R', 18, wR, color: Colors.white54, w: FontWeight.w700),
+        _col('W', 18, wW, color: Colors.white54, w: FontWeight.w700),
+        _col('ECON', 18, wE, color: Colors.white54, w: FontWeight.w700),
+      ]),
+      const Divider(color: Colors.white24, height: 16),
+      if (i.bowling.isEmpty) _t('No bowling yet', 22, color: Colors.white54),
+      for (final b in i.bowling)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(children: [
+            _avatar(bowlTeam, b.name, 40),
+            const SizedBox(width: 12),
+            Expanded(child: _t(b.name, 24, w: _heavy)),
+            _col(b.overs, 24, wO, w: _heavy),
+            _col('${b.runs}', 22, wR, color: Colors.white70),
+            _col('${b.wkts}', 24, wW, color: _gold, w: _heavy),
+            _col(b.econ.toStringAsFixed(2), 22, wE, color: Colors.white70),
+          ]),
+        ),
+      const Divider(color: Colors.white24, height: 24),
+      Row(children: [
+        Expanded(child: _t('EXTRAS', 18, color: Colors.white54, ls: 3, w: FontWeight.w700)),
+        _t('${i.extras}', 24, w: _heavy),
+      ]),
+      const SizedBox(height: 6),
+      Row(children: [
+        Expanded(child: _t('TOTAL', 18, color: Colors.white54, ls: 3, w: FontWeight.w700)),
+        _t('${i.runs}/${i.wickets}  (${i.overs} ov)', 24, w: _heavy, color: _gold),
+      ]),
+      if (fow.isNotEmpty) ...[
+        const Divider(color: Colors.white24, height: 24),
+        _t('FALL OF WICKETS', 16, color: Colors.white54, ls: 3, w: FontWeight.w700),
+        const SizedBox(height: 6),
+        for (final f in fow)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: _t(f, 18, color: Colors.white70),
+          ),
+      ],
+      for (final t in i.timeouts)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: _t('Strategic timeout at ${t.overLabel} ov', 16, color: Colors.white54),
+        ),
+    ]);
+  }
+
+  Widget _cardWide(double u) {
+    final k = _cardIdx();
+    final i = m.innings[k];
+    final team = k == 0 ? m.teamA : m.teamB;
+    final bowlTeam = k == 0 ? m.teamB : m.teamA;
+    return Padding(
+      padding: EdgeInsets.all(22 * u),
+      child: Column(children: [
+        _cardHeader(u),
+        SizedBox(height: 14 * u),
+        _cardSummary(u),
+        SizedBox(height: 14 * u),
+        Expanded(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(
+              flex: 6,
+              child: _card(
+                u,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(width: 760, child: _battingSheet(i, team)),
+                ),
+              ),
+            ),
+            SizedBox(width: 16 * u),
+            Expanded(
+              flex: 4,
+              child: _card(
+                u,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: SizedBox(width: 560, child: _bowlingSheet(i, bowlTeam)),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _cardNarrow(double u) {
+    final k = _cardIdx();
+    final i = m.innings[k];
+    final team = k == 0 ? m.teamA : m.teamB;
+    final bowlTeam = k == 0 ? m.teamB : m.teamA;
+    return ListView(
+      padding: EdgeInsets.all(16 * u),
+      children: [
+        _cardHeader(u),
+        SizedBox(height: 12 * u),
+        _cardSummary(u),
+        SizedBox(height: 12 * u),
+        _card(u, FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.topLeft, child: SizedBox(width: 760, child: _battingSheet(i, team)))),
+        SizedBox(height: 12 * u),
+        _card(u, FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.topLeft, child: SizedBox(width: 560, child: _bowlingSheet(i, bowlTeam)))),
+      ],
+    );
+  }
+
   // ----------------------------------------------------------------- controls
 
   Widget _controls() {
@@ -586,6 +847,18 @@ class CricketTvBoard extends StatelessWidget {
           ]),
           SizedBox(height: 8 * cu),
           Wrap(alignment: WrapAlignment.center, spacing: 8 * cu, runSpacing: 6 * cu, children: [
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF3949AB)),
+              onPressed: onToggleCard,
+              icon: Icon(showCard ? Icons.sports_cricket : Icons.view_list),
+              label: Text(showCard ? 'Live view (S)' : 'Full scorecard (S)'),
+            ),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+              onPressed: (on && m.now.striker != null && m.now.nonStriker != null) ? onRetire : null,
+              icon: const Icon(Icons.healing),
+              label: const Text('Retired hurt (R)'),
+            ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
               onPressed: on ? onTimeout : null,
@@ -623,7 +896,7 @@ class CricketTvBoard extends StatelessWidget {
           ]),
           SizedBox(height: 6 * cu),
           Text(
-            'Keys: 0-6 runs  •  D wide  •  N no ball  •  B bye  •  L leg bye  •  W wicket  •  U undo  •  H hide controls  •  Esc exit',
+            'Keys: 0-6 runs  •  D wide  •  N no ball  •  B bye  •  L leg bye  •  W wicket  •  R retired hurt  •  U undo  •  S scorecard  •  ←/→ innings  •  H hide  •  Esc exit',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 12 * cu, color: Colors.white54, decoration: TextDecoration.none),
