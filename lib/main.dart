@@ -1,0 +1,361 @@
+import 'package:flutter/material.dart';
+import 'app_state.dart';
+import 'models.dart';
+import 'storage.dart';
+import 'cricket_screen.dart';
+import 'football_screen.dart';
+import 'settings_screen.dart';
+import 'teams_screen.dart';
+import 'excel_import.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppState.I.load();
+  runApp(const ScorecardApp());
+}
+
+ThemeData _theme(Brightness b, AppState s) {
+  final base = ThemeData(
+    useMaterial3: true,
+    colorSchemeSeed: Color(s.accent),
+    brightness: b,
+  );
+  final c = s.textColor == null ? null : Color(s.textColor!);
+  var tt = base.textTheme.apply(bodyColor: c, displayColor: c);
+  if (s.bold) {
+    TextStyle? b(TextStyle? st) => st?.copyWith(fontWeight: FontWeight.w800);
+    tt = tt.copyWith(
+      displayLarge: b(tt.displayLarge),
+      displayMedium: b(tt.displayMedium),
+      displaySmall: b(tt.displaySmall),
+      headlineLarge: b(tt.headlineLarge),
+      headlineMedium: b(tt.headlineMedium),
+      headlineSmall: b(tt.headlineSmall),
+      titleLarge: b(tt.titleLarge),
+      titleMedium: b(tt.titleMedium),
+      titleSmall: b(tt.titleSmall),
+      bodyLarge: b(tt.bodyLarge),
+      bodyMedium: b(tt.bodyMedium),
+      bodySmall: b(tt.bodySmall),
+      labelLarge: b(tt.labelLarge),
+      labelMedium: b(tt.labelMedium),
+      labelSmall: b(tt.labelSmall),
+    );
+  }
+  return base.copyWith(textTheme: tt);
+}
+
+class ScorecardApp extends StatelessWidget {
+  const ScorecardApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppState.I,
+      builder: (context, _) {
+        final s = AppState.I;
+        return MaterialApp(
+          title: 'Scorecard',
+          debugShowCheckedModeBanner: false,
+          theme: _theme(Brightness.light, s),
+          darkTheme: _theme(Brightness.dark, s),
+          themeMode: s.mode,
+          builder: (ctx, child) => MediaQuery(
+            data: MediaQuery.of(ctx).copyWith(textScaler: TextScaler.linear(s.fontScale)),
+            child: child!,
+          ),
+          home: const HomeScreen(),
+        );
+      },
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  List<SportMatch> matches = [];
+  bool loading = true;
+  bool selecting = false;
+  final Set<String> selected = {};
+
+  @override
+  void initState() {
+    super.initState();
+    Store.load().then((m) => setState(() {
+          matches = m..sort((a, b) => b.date.compareTo(a.date));
+          loading = false;
+        }));
+  }
+
+  Future<void> _open(SportMatch m) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => m is CricketMatch
+            ? CricketScreen(match: m, onChanged: _persist)
+            : FootballScreen(match: m as FootballMatch, onChanged: _persist),
+      ),
+    );
+    setState(() {});
+  }
+
+  void _persist() => Store.save(matches);
+
+  void _toggle(String id) => setState(() {
+        if (!selected.remove(id)) selected.add(id);
+      });
+
+  void _delete(Set<String> ids) {
+    setState(() {
+      matches.removeWhere((m) => ids.contains(m.id));
+      selected.clear();
+      if (matches.isEmpty) selecting = false;
+    });
+    _persist();
+  }
+
+  Future<bool> _confirm(String title, String msg) async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(msg),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    return r == true;
+  }
+
+  Widget _teamField(TextEditingController c, String label) {
+    final teams = AppState.I.roster.keys.toList();
+    if (teams.isEmpty) {
+      return TextField(controller: c, decoration: InputDecoration(labelText: label));
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: DropdownMenu<String>(
+        controller: c,
+        label: Text(label),
+        width: 280,
+        enableFilter: true,
+        requestFocusOnTap: true,
+        dropdownMenuEntries: [for (final t in teams) DropdownMenuEntry(value: t, label: t)],
+      ),
+    );
+  }
+
+  Future<void> _newMatch(String sport) async {
+    final teams = AppState.I.roster.keys.toList();
+    final a = TextEditingController(text: teams.isNotEmpty ? teams[0] : 'Team A');
+    final b = TextEditingController(text: teams.length > 1 ? teams[1] : 'Team B');
+    final ov = TextEditingController(text: '20');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(sport == 'cricket' ? 'New Cricket Match' : 'New Football Match'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _teamField(a, 'Team A'),
+            _teamField(b, 'Team B'),
+            if (sport == 'cricket')
+              TextField(
+                controller: ov,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Overs per innings'),
+              ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Start')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final na = a.text.trim().isEmpty ? 'Team A' : a.text.trim();
+    final nb = b.text.trim().isEmpty ? 'Team B' : b.text.trim();
+    final pa = List<String>.from(AppState.I.roster[na] ?? const []);
+    final pb = List<String>.from(AppState.I.roster[nb] ?? const []);
+    final SportMatch m = sport == 'cricket'
+        ? CricketMatch(
+            id: SportMatch.newId(),
+            teamA: na,
+            teamB: nb,
+            playersA: pa,
+            playersB: pb,
+            overs: (int.tryParse(ov.text) ?? 20).clamp(1, 100))
+        : FootballMatch(
+            id: SportMatch.newId(), teamA: na, teamB: nb, playersA: pa, playersB: pb);
+    matches.insert(0, m);
+    _persist();
+    _open(m);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scorecard'),
+        centerTitle: false,
+        actions: [
+          if (matches.isNotEmpty && !selecting)
+            IconButton(
+              tooltip: 'Edit / delete history',
+              icon: const Icon(Icons.checklist),
+              onPressed: () => setState(() => selecting = true),
+            ),
+          if (selecting) ...[
+            IconButton(
+              tooltip: 'Select all',
+              icon: const Icon(Icons.select_all),
+              onPressed: () => setState(() => selected.addAll(matches.map((m) => m.id))),
+            ),
+            IconButton(
+              tooltip: 'Delete selected',
+              icon: const Icon(Icons.delete),
+              onPressed: selected.isEmpty
+                  ? null
+                  : () async {
+                      if (await _confirm('Delete ${selected.length} match(es)?',
+                          'This cannot be undone.')) {
+                        _delete(Set.of(selected));
+                      }
+                    },
+            ),
+            IconButton(
+              tooltip: 'Done',
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() {
+                selecting = false;
+                selected.clear();
+              }),
+            ),
+          ],
+          IconButton(
+            tooltip: 'Teams & players',
+            icon: const Icon(Icons.groups),
+            onPressed: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const TeamsScreen())),
+          ),
+          ...displayActions(context),
+        ],
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(children: [
+                Expanded(child: _SportCard('Cricket', Icons.sports_cricket, cs.primaryContainer, () => _newMatch('cricket'))),
+                const SizedBox(width: 12),
+                Expanded(child: _SportCard('Football', Icons.sports_soccer, cs.tertiaryContainer, () => _newMatch('football'))),
+              ]),
+            ),
+            ListenableBuilder(
+              listenable: AppState.I,
+              builder: (context, _) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: FilledButton.tonalIcon(
+                  onPressed: () => importRosterFlow(context),
+                  icon: const Icon(Icons.upload_file),
+                  label: Text(AppState.I.roster.isEmpty
+                      ? 'Import teams & players (Excel)'
+                      : 'Import Excel  •  ${AppState.I.roster.length} teams loaded'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(children: [
+                const Expanded(
+                  child: Text('Match history', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                if (matches.isNotEmpty)
+                  TextButton.icon(
+                    onPressed: () async {
+                      if (await _confirm('Delete all match history?', 'This cannot be undone.')) {
+                        _delete(matches.map((m) => m.id).toSet());
+                      }
+                    },
+                    icon: const Icon(Icons.delete_sweep),
+                    label: const Text('Clear all'),
+                  ),
+              ]),
+            ),
+            Expanded(
+              child: loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : matches.isEmpty
+                      ? const Center(child: Text('No matches yet. Start one above.'))
+                      : ListView.builder(
+                          itemCount: matches.length,
+                          itemBuilder: (_, i) {
+                            final m = matches[i];
+                            final sel = selected.contains(m.id);
+                            return ListTile(
+                              selected: sel,
+                              leading: selecting
+                                  ? Checkbox(value: sel, onChanged: (_) => _toggle(m.id))
+                                  : Icon(m.sport == 'cricket' ? Icons.sports_cricket : Icons.sports_soccer),
+                              title: Text(m.summary, maxLines: 3, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(m.date.toString().substring(0, 16)),
+                              trailing: selecting
+                                  ? null
+                                  : IconButton(
+                                      tooltip: 'Delete match',
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: () async {
+                                        if (await _confirm('Delete this match?', m.summary)) {
+                                          _delete({m.id});
+                                        }
+                                      },
+                                    ),
+                              onTap: () => selecting ? _toggle(m.id) : _open(m),
+                              onLongPress: () => setState(() {
+                                selecting = true;
+                                selected.add(m.id);
+                              }),
+                            );
+                          },
+                        ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _SportCard extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _SportCard(this.label, this.icon, this.color, this.onTap);
+  @override
+  Widget build(BuildContext context) => Card(
+        color: color,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Column(children: [
+              Icon(icon, size: 44),
+              const SizedBox(height: 8),
+              Text('New $label', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ]),
+          ),
+        ),
+      );
+}
