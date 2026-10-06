@@ -75,7 +75,7 @@ class Ball {
     if (extra == 'nb') return runs > 0 ? 'Nb+$runs' : 'Nb';
     if (extra == 'b') return 'B$runs';
     if (extra == 'lb') return 'Lb$runs';
-    if (wicket) return 'W';
+    if (wicket) return runs > 0 ? 'W+$runs' : 'W';
     return '$runs';
   }
 }
@@ -197,6 +197,8 @@ class Innings {
     if (b.wicket && b.out == null) b.out = striker;
     balls.add(b);
     if (b.wicket) {
+      // runs completed before a run out: odd runs mean the batters crossed
+      if (b.runs.isOdd) _swap();
       if (b.out == striker) {
         striker = null;
       } else {

@@ -129,7 +129,6 @@ class CricketTvBoard extends StatelessWidget {
     var txt = b.label;
     if (b.wicket) {
       bg = const Color(0xFFE53935);
-      txt = 'W';
     } else if (b.extra != null) {
       bg = const Color(0xFFFB8C00);
     } else if (b.runs == 6) {
@@ -848,7 +847,12 @@ class CricketTvBoard extends StatelessWidget {
           SizedBox(height: 8 * cu),
           Wrap(alignment: WrapAlignment.center, spacing: 8 * cu, runSpacing: 6 * cu, children: [
             FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF3949AB)),
+              style: FilledButton.styleFrom(
+                backgroundColor: showCard ? _gold : const Color(0xFF1565C0),
+                foregroundColor: showCard ? Colors.black : Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 18 * cu, vertical: 14 * cu),
+                textStyle: const TextStyle(fontWeight: FontWeight.w800),
+              ),
               onPressed: onToggleCard,
               icon: Icon(showCard ? Icons.sports_cricket : Icons.view_list),
               label: Text(showCard ? 'Live view (S)' : 'Full scorecard (S)'),

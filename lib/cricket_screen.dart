@@ -75,9 +75,9 @@ class _CricketScreenState extends State<CricketScreen> {
     } else if (k == LogicalKeyboardKey.keyW) {
       _wicket();
     } else if (k == LogicalKeyboardKey.keyD) {
-      _score(Ball(extra: 'wd'));
+      _extra('wd');
     } else if (k == LogicalKeyboardKey.keyN) {
-      _score(Ball(extra: 'nb'));
+      _extra('nb');
     } else if (k == LogicalKeyboardKey.keyB) {
       _extra('b');
     } else if (k == LogicalKeyboardKey.keyL) {
@@ -119,13 +119,7 @@ class _CricketScreenState extends State<CricketScreen> {
           canScore: canScore,
           showControls: _tvControls,
           onRuns: (r) => _score(Ball(runs: r)),
-          onExtra: (t) {
-            if (t == 'wd' || t == 'nb') {
-              _score(Ball(extra: t));
-            } else {
-              _extra(t);
-            }
-          },
+          onExtra: (t) => _extra(t),
           onExtraLong: (t) => _extra(t),
           onWicket: _wicket,
           onUndo: () => _act(m.undo),
@@ -177,7 +171,7 @@ class _CricketScreenState extends State<CricketScreen> {
     }
     // Batter reached 50 / 100 / 150 / 200 ...
     MilestoneInfo? milestone;
-    if (!b.wicket && b.batterRuns > 0 && b.batter != null) {
+    if ((!b.wicket || b.wkType == 'run out') && b.batterRuns > 0 && b.batter != null) {
       BatStat? st;
       for (final x in m.now.batting) {
         if (x.name == b.batter) st = x;
@@ -451,8 +445,27 @@ class _CricketScreenState extends State<CricketScreen> {
     );
     if (t == null) return;
     final runOut = t.startsWith('Run out');
+    var runs = 0;
+    if (runOut) {
+      if (!mounted) return;
+      final r = await showDialog<int>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Runs completed before the run out'),
+          children: [
+            Wrap(alignment: WrapAlignment.center, spacing: 8, children: [
+              for (final o in [0, 1, 2, 3, 4])
+                FilledButton.tonal(onPressed: () => Navigator.pop(ctx, o), child: Text('$o')),
+            ]),
+          ],
+        ),
+      );
+      if (r == null) return;
+      runs = r;
+    }
     _score(Ball(
       wicket: true,
+      runs: runs,
       wkType: runOut ? 'run out' : t.toLowerCase(),
       out: t == 'Run out (non-striker)' ? i.nonStriker : null,
     ));
