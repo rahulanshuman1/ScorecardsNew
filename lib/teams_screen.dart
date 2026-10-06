@@ -140,6 +140,17 @@ class TeamsScreen extends StatelessWidget {
                             title: Text(e.value[i]),
                             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                               IconButton(
+                                tooltip: s.captains[e.key] == e.value[i]
+                                    ? 'Captain (tap to remove)'
+                                    : 'Make captain',
+                                icon: Icon(
+                                  s.captains[e.key] == e.value[i] ? Icons.star : Icons.star_border,
+                                  color: s.captains[e.key] == e.value[i] ? Colors.amber : null,
+                                ),
+                                onPressed: () => s.setCaptain(
+                                    e.key, s.captains[e.key] == e.value[i] ? '' : e.value[i]),
+                              ),
+                              IconButton(
                                 tooltip: 'Set photo',
                                 icon: const Icon(Icons.add_a_photo),
                                 onPressed: () => _pickPhoto(context, s, e.key, e.value[i]),

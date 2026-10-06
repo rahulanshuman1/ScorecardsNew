@@ -309,6 +309,11 @@ class CricketMatch extends SportMatch {
   int current; // 0 or 1
   bool finished;
   List<String> playersA, playersB;
+  String league; // tournament / premier league name
+  String captainA, captainB;
+  int tossWinner; // -1 = toss not done, 0 = teamA, 1 = teamB
+  String tossDecision; // '', 'bat' or 'field'
+  int batFirst; // 0 = teamA bats first, 1 = teamB bats first
 
   CricketMatch({
     required String id,
@@ -321,6 +326,12 @@ class CricketMatch extends SportMatch {
     this.finished = false,
     List<String>? playersA,
     List<String>? playersB,
+    this.league = '',
+    this.captainA = '',
+    this.captainB = '',
+    this.tossWinner = -1,
+    this.tossDecision = '',
+    this.batFirst = 0,
   })  : innings = innings ?? [Innings(), Innings()],
         playersA = playersA ?? [],
         playersB = playersB ?? [],
@@ -329,10 +340,35 @@ class CricketMatch extends SportMatch {
   @override
   String get sport => 'cricket';
 
-  String get battingTeam => current == 0 ? teamA : teamB;
-  String get bowlingTeam => current == 0 ? teamB : teamA;
-  List<String> get battingPlayers => current == 0 ? playersA : playersB;
-  List<String> get bowlingPlayers => current == 0 ? playersB : playersA;
+  String teamAt(int idx) => idx == 0 ? teamA : teamB;
+
+  /// Team batting in innings [k] (0 = first innings) - depends on the toss.
+  String inningsTeam(int k) => teamAt(k == 0 ? batFirst : 1 - batFirst);
+  String get battingTeam => inningsTeam(current);
+  String get bowlingTeam => inningsTeam(1 - current);
+  List<String> _squad(int idx) => idx == 0 ? playersA : playersB;
+  List<String> get battingPlayers => _squad(current == 0 ? batFirst : 1 - batFirst);
+  List<String> get bowlingPlayers => _squad(current == 0 ? 1 - batFirst : batFirst);
+
+  /// True until the first ball (or retirement) of the match.
+  bool get preMatch =>
+      current == 0 && !finished && innings[0].balls.isEmpty && innings[0].retired.isEmpty;
+  bool get tossDecided => tossWinner >= 0 && tossDecision.isNotEmpty;
+  String get tossLine => tossDecided
+      ? '${teamAt(tossWinner)} won the toss and elected to ${tossDecision == 'bat' ? 'bat' : 'field'}.'
+      : '';
+
+  void setToss(int winner, bool bat) {
+    tossWinner = winner;
+    tossDecision = bat ? 'bat' : 'field';
+    batFirst = bat ? winner : 1 - winner;
+    if (preMatch) {
+      // openers / bowler must be picked again for the correct teams
+      innings[0].striker = null;
+      innings[0].nonStriker = null;
+      innings[0].bowler = null;
+    }
+  }
   Innings get now => innings[current];
   int get target => innings[0].runs + 1;
 
@@ -369,28 +405,30 @@ class CricketMatch extends SportMatch {
   String get result {
     if (!finished) return '';
     final a = innings[0].runs, b = innings[1].runs;
-    if (b >= target) return '$teamB won by ${10 - innings[1].wickets} wickets';
-    if (b < a) return '$teamA won by ${a - b} runs';
+    if (b >= target) return '${inningsTeam(1)} won by ${10 - innings[1].wickets} wickets';
+    if (b < a) return '${inningsTeam(0)} won by ${a - b} runs';
     return 'Match tied';
   }
 
   @override
   String get summary {
     final s =
-        '$teamA ${innings[0].runs}/${innings[0].wickets}  vs  $teamB ${innings[1].runs}/${innings[1].wickets}';
+        '${inningsTeam(0)} ${innings[0].runs}/${innings[0].wickets}  vs  ${inningsTeam(1)} ${innings[1].runs}/${innings[1].wickets}';
     return finished ? '$s • $result' : '$s • In progress';
   }
 
   /// Plain ASCII scorecard (used for PDF export and copy).
   String get scorecardText {
     final sb = StringBuffer();
+    if (league.isNotEmpty) sb.writeln(league);
     sb.writeln('$teamA vs $teamB  ($overs overs)');
     sb.writeln(date.toString().substring(0, 16));
+    if (tossDecided) sb.writeln(tossLine);
     for (int k = 0; k < 2; k++) {
       final i = innings[k];
       if (k == 1 && current == 0 && i.balls.isEmpty) continue;
       sb.writeln();
-      sb.writeln('${k == 0 ? teamA : teamB}  ${i.runs}/${i.wickets}  (${i.overs} ov)');
+      sb.writeln('${inningsTeam(k)}  ${i.runs}/${i.wickets}  (${i.overs} ov)');
       sb.writeln('-' * 52);
       sb.writeln('${'Batter'.padRight(16)}${_p('R', 5)}${_p('B', 5)}${_p('4s', 5)}${_p('6s', 5)}${_p('SR', 7)}');
       for (final b in i.batting) {
@@ -426,6 +464,12 @@ class CricketMatch extends SportMatch {
         'finished': finished,
         'pA': playersA,
         'pB': playersB,
+        'lg': league,
+        'capA': captainA,
+        'capB': captainB,
+        'tw': tossWinner,
+        'td': tossDecision,
+        'bf': batFirst,
         'innings': innings.map((i) => i.toJson()).toList(),
       };
 
@@ -439,6 +483,12 @@ class CricketMatch extends SportMatch {
         finished: j['finished'],
         playersA: List<String>.from(j['pA'] ?? const []),
         playersB: List<String>.from(j['pB'] ?? const []),
+        league: (j['lg'] ?? '') as String,
+        captainA: (j['capA'] ?? '') as String,
+        captainB: (j['capB'] ?? '') as String,
+        tossWinner: (j['tw'] ?? -1) as int,
+        tossDecision: (j['td'] ?? '') as String,
+        batFirst: (j['bf'] ?? 0) as int,
         innings: (j['innings'] as List)
             .map((i) => Innings.fromJson(Map<String, dynamic>.from(i)))
             .toList(),

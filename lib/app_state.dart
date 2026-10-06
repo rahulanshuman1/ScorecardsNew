@@ -19,6 +19,8 @@ class AppState extends ChangeNotifier {
   int? textColor; // null = automatic
   ThemeMode mode = ThemeMode.system;
   Map<String, List<String>> roster = {};
+  Map<String, String> captains = {}; // team -> captain name
+  String leagueName = ''; // last used league / tournament name
   Map<String, String> photos = {}; // 'team\u0001player' -> file path
 
   Future<void> load() async {
@@ -33,6 +35,13 @@ class AppState extends ChangeNotifier {
     textColor = p.containsKey('tc') ? p.getInt('tc') : null;
     final mi = (p.getInt('mode') ?? 0).clamp(0, 2).toInt();
     mode = ThemeMode.values[mi];
+    leagueName = p.getString('league_v1') ?? '';
+    final cp = p.getString('captains_v1');
+    if (cp != null) {
+      try {
+        captains = (jsonDecode(cp) as Map).map((k, v) => MapEntry(k as String, v as String));
+      } catch (_) {}
+    }
     final ph = p.getString('photos_v1');
     if (ph != null) {
       try {
@@ -138,6 +147,7 @@ class AppState extends ChangeNotifier {
 
   void removeTeam(String team) {
     roster.remove(team);
+    if (captains.remove(team) != null) _saveCaptains();
     _dropPhotos('$team\u0001');
     notifyListeners();
     _saveRoster();
@@ -171,6 +181,11 @@ class AppState extends ChangeNotifier {
       for (final e in roster.entries) (e.key == old ? name : e.key): e.value,
     };
     if (name != old) {
+      final cap = captains.remove(old);
+      if (cap != null) {
+        captains[name] = cap;
+        _saveCaptains();
+      }
       final prefix = '$old\u0001';
       final moved = <String, String>{};
       photos.removeWhere((k, v) {
@@ -199,7 +214,12 @@ class AppState extends ChangeNotifier {
     final l = roster[team];
     if (l == null || player.isEmpty || index < 0 || index >= l.length) return;
     final oldKey = _pk(team, l[index]);
+    final oldName = l[index];
     l[index] = player;
+    if (captains[team] == oldName) {
+      captains[team] = player;
+      _saveCaptains();
+    }
     final path = photos.remove(oldKey);
     if (path != null) {
       photos[_pk(team, player)] = path;
@@ -306,5 +326,35 @@ class AppState extends ChangeNotifier {
     _deleteFile(photos.remove(_pk(team, player)));
     notifyListeners();
     _savePhotos();
+  }
+
+  // ---- captains & league name ----
+  Future<void> _saveCaptains() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('captains_v1', jsonEncode(captains));
+  }
+
+  /// Sets the captain of [team]; an empty [name] removes it.
+  void setCaptain(String team, String name) {
+    if (name.trim().isEmpty) {
+      captains.remove(team);
+    } else {
+      captains[team] = name.trim();
+    }
+    notifyListeners();
+    _saveCaptains();
+  }
+
+  void setCaptains(Map<String, String> m) {
+    if (m.isEmpty) return;
+    captains = {...captains, ...m};
+    notifyListeners();
+    _saveCaptains();
+  }
+
+  Future<void> setLeagueName(String name) async {
+    leagueName = name.trim();
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString('league_v1', leagueName);
   }
 }

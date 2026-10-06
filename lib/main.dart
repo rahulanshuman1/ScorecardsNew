@@ -190,6 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
             teamB: nb,
             playersA: pa,
             playersB: pb,
+            league: AppState.I.leagueName,
             overs: (int.tryParse(ov.text) ?? 20).clamp(1, 100))
         : FootballMatch(
             id: SportMatch.newId(), teamA: na, teamB: nb, playersA: pa, playersB: pb);

@@ -7,6 +7,7 @@ import 'app_state.dart';
 import 'break_screen.dart';
 import 'events_anim.dart';
 import 'export_xlsx.dart';
+import 'intro_screen.dart';
 import 'milestone_anim.dart';
 import 'tv_scoreboard.dart';
 import 'models.dart';
@@ -33,7 +34,11 @@ class _CricketScreenState extends State<CricketScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _ensure());
+    // Before the toss the scorer may want the pre-match options first, so the
+    // opener prompt waits until the toss is done (or the first ball is scored).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!m.preMatch || m.tossDecided) _ensure();
+    });
   }
 
   @override
@@ -135,6 +140,11 @@ class _CricketScreenState extends State<CricketScreen> {
             _tvInn = m.current;
           }),
           onRetire: _retire,
+          onLeague: _showLeague,
+          onEditLeague: _editLeague,
+          onTeams: _showBoth,
+          onToss: _toss,
+          onTossResult: _showTossResult,
         ),
       ),
     );
@@ -263,6 +273,230 @@ class _CricketScreenState extends State<CricketScreen> {
   List<String> _batOptions(Innings i) {
     final used = i.batting.map((b) => b.name).toSet();
     return m.battingPlayers.where((p) => !used.contains(p)).toList();
+  }
+
+  // ------------------------------------------------ pre-match presentation
+
+  String _capName(int idx) {
+    final c = idx == 0 ? m.captainA : m.captainB;
+    if (c.isNotEmpty) return c;
+    return AppState.I.captains[m.teamAt(idx)] ?? '';
+  }
+
+  TeamCard _teamCard(int idx) {
+    final team = m.teamAt(idx);
+    final cap = _capName(idx);
+    return TeamCard(
+      team,
+      cap,
+      cap.isEmpty ? null : AppState.I.photoFor(team, cap),
+      idx == 0 ? const Color(0xFF2979FF) : const Color(0xFFFF6D00),
+    );
+  }
+
+  Future<void> _editLeague() async {
+    final c = TextEditingController(text: m.league);
+    String? err;
+    final res = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Premier League / tournament name'),
+          content: TextField(
+            controller: c,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(labelText: 'League name', errorText: err),
+            onSubmitted: (v) {
+              if (v.trim().isEmpty) {
+                setD(() => err = 'Enter a league name');
+              } else {
+                Navigator.pop(ctx, v.trim());
+              }
+            },
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            if (m.league.isNotEmpty)
+              TextButton(onPressed: () => Navigator.pop(ctx, ''), child: const Text('Remove')),
+            FilledButton(
+              onPressed: () {
+                if (c.text.trim().isEmpty) {
+                  setD(() => err = 'Enter a league name');
+                } else {
+                  Navigator.pop(ctx, c.text.trim());
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (res == null) return;
+    _do(() => m.league = res);
+    AppState.I.setLeagueName(res);
+  }
+
+  Future<void> _showLeague() async {
+    if (m.league.trim().isEmpty) {
+      await _editLeague();
+      if (m.league.trim().isEmpty || !mounted) return;
+    }
+    await showIntro(
+      context,
+      kind: IntroKind.league,
+      league: m.league,
+      subtitle: '${m.teamA} vs ${m.teamB}',
+    );
+  }
+
+  Future<String?> _pickCaptain(int idx) async {
+    final squad = idx == 0 ? m.playersA : m.playersB;
+    final name = await _askName('Captain – ${m.teamAt(idx)}', squad);
+    if (name == null || name.isEmpty) return null;
+    _do(() {
+      if (idx == 0) {
+        m.captainA = name;
+      } else {
+        m.captainB = name;
+      }
+    });
+    AppState.I.setCaptain(m.teamAt(idx), name);
+    return name;
+  }
+
+  Future<bool> _needCaptain(int idx) async {
+    if (_capName(idx).isNotEmpty) return true;
+    final n = await _pickCaptain(idx);
+    return n != null && n.isNotEmpty;
+  }
+
+  Future<void> _showTeam(int idx) async {
+    if (!await _needCaptain(idx) || !mounted) return;
+    await showIntro(context,
+        kind: IntroKind.team,
+        a: _teamCard(idx),
+        league: m.league.isEmpty ? null : m.league);
+  }
+
+  Future<void> _showBoth() async {
+    if (!await _needCaptain(0) || !mounted) return;
+    if (!await _needCaptain(1) || !mounted) return;
+    await showIntro(context,
+        kind: IntroKind.versus,
+        a: _teamCard(0),
+        b: _teamCard(1),
+        league: m.league.isEmpty ? null : m.league);
+  }
+
+  Future<void> _toss() async {
+    if (!m.preMatch) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('The toss can only be done before the first ball')));
+      return;
+    }
+    if (!await _needCaptain(0) || !mounted) return;
+    if (!await _needCaptain(1) || !mounted) return;
+    final r = await showToss(context,
+        a: _teamCard(0), b: _teamCard(1), league: m.league.isEmpty ? null : m.league);
+    if (r == null || !mounted) return;
+    _do(() => m.setToss(r.winner, r.bat));
+    _ensure();
+  }
+
+  Future<void> _showTossResult() async {
+    if (!m.tossDecided) return;
+    await showIntro(
+      context,
+      kind: IntroKind.tossResult,
+      a: _teamCard(m.tossWinner),
+      line: m.tossLine,
+      bat: m.tossDecision == 'bat',
+    );
+  }
+
+  Widget _preMatchCard() {
+    Widget teamCol(int idx) {
+      final card = _teamCard(idx);
+      return Expanded(
+        child: Column(children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundImage: card.photo != null ? FileImage(File(card.photo!)) : null,
+            child: card.photo == null
+                ? Text(card.captain.isEmpty ? '?' : card.captain.substring(0, 1).toUpperCase())
+                : null,
+          ),
+          const SizedBox(height: 6),
+          Text(card.team,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(card.captain.isEmpty ? 'Captain: not set' : 'Captain: ${card.captain}',
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+          TextButton(
+            onPressed: () => _pickCaptain(idx),
+            child: Text(card.captain.isEmpty ? 'Set captain' : 'Change captain'),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => _showTeam(idx),
+            icon: const Icon(Icons.groups),
+            label: const Text('Show team'),
+          ),
+        ]),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Text('PRE-MATCH',
+              style: TextStyle(fontSize: 12, letterSpacing: 3, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Row(children: [
+            const Icon(Icons.emoji_events),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                m.league.isEmpty ? 'No league name set' : m.league,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Edit league name',
+              icon: const Icon(Icons.edit),
+              onPressed: _editLeague,
+            ),
+            FilledButton.tonal(onPressed: _showLeague, child: const Text('Show league')),
+          ]),
+          const Divider(),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [teamCol(0), teamCol(1)]),
+          const SizedBox(height: 4),
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: _showBoth,
+              icon: const Icon(Icons.compare_arrows),
+              label: const Text('Show both teams'),
+            ),
+          ),
+          const Divider(),
+          Row(children: [
+            Expanded(child: Text(m.tossDecided ? m.tossLine : 'Toss not done yet')),
+            if (m.tossDecided)
+              TextButton(onPressed: _showTossResult, child: const Text('Show')),
+            FilledButton.icon(
+              onPressed: _toss,
+              icon: const Icon(Icons.monetization_on),
+              label: Text(m.tossDecided ? 'Edit toss' : 'Toss'),
+            ),
+          ]),
+        ]),
+      ),
+    );
   }
 
   Future<void> _timeout() async {
@@ -591,7 +825,7 @@ class _CricketScreenState extends State<CricketScreen> {
 
   Widget _inningsCard(int k) {
     final i = m.innings[k];
-    final team = k == 0 ? m.teamA : m.teamB;
+    final team = m.inningsTeam(k);
     return Card(
       child: ExpansionTile(
         key: PageStorageKey('inn$k'),
@@ -678,7 +912,15 @@ class _CricketScreenState extends State<CricketScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'timeout') {
+              if (v == 'league') {
+                _showLeague();
+              } else if (v == 'editleague') {
+                _editLeague();
+              } else if (v == 'teams') {
+                _showBoth();
+              } else if (v == 'toss') {
+                _toss();
+              } else if (v == 'timeout') {
                 _timeout();
               } else if (v == 'break') {
                 _inningsBreak();
@@ -693,6 +935,12 @@ class _CricketScreenState extends State<CricketScreen> {
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(value: 'league', child: Text('Show league name')),
+              const PopupMenuItem(value: 'editleague', child: Text('Edit league name')),
+              if (m.preMatch) ...[
+                const PopupMenuItem(value: 'teams', child: Text('Show both teams')),
+                const PopupMenuItem(value: 'toss', child: Text('Toss')),
+              ],
               const PopupMenuItem(value: 'timeout', child: Text('Strategic timeout')),
               PopupMenuItem(
                 value: 'break',
@@ -713,6 +961,7 @@ class _CricketScreenState extends State<CricketScreen> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 700),
           child: ListView(padding: const EdgeInsets.all(16), children: [
+            if (m.preMatch) _preMatchCard(),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(20),

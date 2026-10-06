@@ -33,7 +33,8 @@ class PendingPhoto {
 class RosterResult {
   final Map<String, List<String>> teams;
   final List<PendingPhoto> photos;
-  RosterResult(this.teams, this.photos);
+  final Map<String, String> captains; // team -> captain
+  RosterResult(this.teams, this.photos, [this.captains = const {}]);
 }
 
 Iterable<x.XmlElement> _els(x.XmlNode n, String local) =>
@@ -303,6 +304,12 @@ List<List<String>> parseCsv(String text) {
 RosterResult rosterFromSheets(List<SheetData> sheets) {
   final out = <String, List<String>>{};
   final photos = <PendingPhoto>[];
+  final captains = <String, String>{};
+
+  bool truthy(String s) {
+    final v = s.trim().toLowerCase();
+    return const ['c', '(c)', 'yes', 'y', 'true', '1', 'captain', 'x'].contains(v);
+  }
 
   void add(String team, String player) {
     team = team.trim();
@@ -319,7 +326,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
   for (final sh in sheets) {
     final rows = sh.rows.map((r) => r.map((e) => e.trim()).toList()).toList();
     final rowOf = <int, MapEntry<String, String>>{}; // sheet row -> (team, player)
-    var hi = -1, ti = -1, pi = -1;
+    var hi = -1, ti = -1, pi = -1, ci = -1;
     for (var i = 0; i < rows.length && i < 10; i++) {
       final h = rows[i].map((e) => e.toLowerCase()).toList();
       final t = h.indexWhere(isTeamH);
@@ -328,6 +335,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
         hi = i;
         ti = t;
         pi = p;
+        ci = h.indexWhere((e) => e == 'captain' || e == 'is captain' || e == 'c');
         break;
       }
     }
@@ -346,6 +354,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
         add(t, player);
         if (t.isNotEmpty && player.isNotEmpty) {
           rowOf[sh.rowNums[ri]] = MapEntry(t, player);
+          if (ci >= 0 && truthy(cell(ci))) captains[t.trim()] = player.trim();
         }
       }
     } else {
@@ -366,7 +375,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
       if (hit != null) photos.add(PendingPhoto(hit.key, hit.value, img.bytes, img.ext));
     }
   }
-  return RosterResult(out, photos);
+  return RosterResult(out, photos, captains);
 }
 
 Future<RosterResult?> pickRosterFromExcel() async {
@@ -400,6 +409,7 @@ Future<void> importRosterFlow(BuildContext context) async {
       return;
     }
     AppState.I.mergeRoster(r.teams);
+    AppState.I.setCaptains(r.captains);
     var photoCount = 0;
     for (final p in r.photos) {
       try {

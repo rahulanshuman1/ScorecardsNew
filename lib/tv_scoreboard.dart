@@ -25,6 +25,7 @@ class CricketTvBoard extends StatelessWidget {
   final int cardInnings; // 0 or 1
   final void Function(int innings) onCardInnings;
   final VoidCallback onToggleCard, onRetire;
+  final VoidCallback onLeague, onEditLeague, onTeams, onToss, onTossResult;
 
   const CricketTvBoard({
     super.key,
@@ -45,6 +46,11 @@ class CricketTvBoard extends StatelessWidget {
     required this.onCardInnings,
     required this.onToggleCard,
     required this.onRetire,
+    required this.onLeague,
+    required this.onEditLeague,
+    required this.onTeams,
+    required this.onToss,
+    required this.onTossResult,
   });
 
   static const _gold = Color(0xFFFFC107);
@@ -309,8 +315,21 @@ class CricketTvBoard extends StatelessWidget {
   Widget _header(double u) => Row(children: [
         _LiveBadge(u: u),
         SizedBox(width: 16 * u),
-        Expanded(child: _t('${m.teamA}  vs  ${m.teamB}', 30 * u, w: _heavy, ls: 1)),
-        _t('${m.overs}-OVER MATCH', 18 * u, color: Colors.white70, ls: 3 * u),
+        Expanded(flex: 3, child: _t('${m.teamA}  vs  ${m.teamB}', 30 * u, w: _heavy, ls: 1)),
+        Expanded(
+          flex: 2,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: _t(
+              m.league.trim().isEmpty
+                  ? '${m.overs}-OVER MATCH'
+                  : '${m.league.toUpperCase()}  •  ${m.overs}-OVER MATCH',
+              18 * u,
+              color: Colors.white70,
+              ls: 3 * u,
+            ),
+          ),
+        ),
       ]);
 
   // --------------------------------------------------------------- score card
@@ -357,6 +376,8 @@ class CricketTvBoard extends StatelessWidget {
       ]);
     } else if (m.inningsOver) {
       status = _t('INNINGS COMPLETE', 26 * u, w: _heavy, color: _gold, ls: 3 * u);
+    } else if (m.preMatch && m.tossDecided) {
+      status = _t(m.tossLine.toUpperCase(), 20 * u, w: _heavy, color: _gold, ls: 1 * u);
     } else {
       status = _t('${m.bowlingTeam.toUpperCase()} BOWLING', 22 * u,
           color: Colors.white70, ls: 3 * u, w: FontWeight.w700);
@@ -620,7 +641,7 @@ class CricketTvBoard extends StatelessWidget {
   Widget _cardSummary(double u) {
     final k = _cardIdx();
     final i = m.innings[k];
-    final team = k == 0 ? m.teamA : m.teamB;
+    final team = m.inningsTeam(k);
     return _card(
       u,
       Row(children: [
@@ -742,8 +763,8 @@ class CricketTvBoard extends StatelessWidget {
   Widget _cardWide(double u) {
     final k = _cardIdx();
     final i = m.innings[k];
-    final team = k == 0 ? m.teamA : m.teamB;
-    final bowlTeam = k == 0 ? m.teamB : m.teamA;
+    final team = m.inningsTeam(k);
+    final bowlTeam = m.inningsTeam(1 - k);
     return Padding(
       padding: EdgeInsets.all(22 * u),
       child: Column(children: [
@@ -785,8 +806,8 @@ class CricketTvBoard extends StatelessWidget {
   Widget _cardNarrow(double u) {
     final k = _cardIdx();
     final i = m.innings[k];
-    final team = k == 0 ? m.teamA : m.teamB;
-    final bowlTeam = k == 0 ? m.teamB : m.teamA;
+    final team = m.inningsTeam(k);
+    final bowlTeam = m.inningsTeam(1 - k);
     return ListView(
       padding: EdgeInsets.all(16 * u),
       children: [
@@ -863,6 +884,43 @@ class CricketTvBoard extends StatelessWidget {
               icon: const Icon(Icons.healing),
               label: const Text('Retired hurt (R)'),
             ),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+              onPressed: onLeague,
+              icon: const Icon(Icons.emoji_events),
+              label: const Text('League'),
+            ),
+            IconButton(
+              tooltip: 'Edit league name',
+              color: Colors.white,
+              onPressed: onEditLeague,
+              icon: const Icon(Icons.edit),
+            ),
+            if (m.preMatch)
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                onPressed: onTeams,
+                icon: const Icon(Icons.groups),
+                label: const Text('Show teams'),
+              ),
+            if (m.preMatch)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _gold,
+                  foregroundColor: Colors.black,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onPressed: onToss,
+                icon: const Icon(Icons.monetization_on),
+                label: Text(m.tossDecided ? 'Edit toss' : 'Toss'),
+              ),
+            if (m.tossDecided)
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                onPressed: onTossResult,
+                icon: const Icon(Icons.campaign),
+                label: const Text('Toss result'),
+              ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
               onPressed: on ? onTimeout : null,

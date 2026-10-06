@@ -14,16 +14,18 @@ List<XSheet> cricketSheets(CricketMatch m) {
   sheets.add(XSheet('Summary', [
     [_h('Match'), XCell('${m.teamA} vs ${m.teamB}')],
     [_h('Date'), XCell(m.date.toString().substring(0, 16))],
+    [_h('League'), XCell(m.league.isEmpty ? '-' : m.league)],
+    [_h('Toss'), XCell(m.tossDecided ? m.tossLine : '-')],
     [_h('Overs per innings'), XCell(m.overs)],
-    [_h(m.teamA), XCell(score(m.innings[0]))],
-    [_h(m.teamB), XCell(score(m.innings[1]))],
+    [_h(m.inningsTeam(0)), XCell(score(m.innings[0]))],
+    [_h(m.inningsTeam(1)), XCell(score(m.innings[1]))],
     [_h('Result'), XCell(m.finished ? m.result : 'In progress')],
   ]));
 
   for (var k = 0; k < 2; k++) {
     final i = m.innings[k];
     if (k == 1 && m.current == 0 && i.balls.isEmpty) continue;
-    final team = k == 0 ? m.teamA : m.teamB;
+    final team = m.inningsTeam(k);
     sheets.add(XSheet('Innings ${k + 1} - $team', [
       [_h('$team  ${i.runs}/${i.wickets}  (${i.overs} ov)')],
       [],

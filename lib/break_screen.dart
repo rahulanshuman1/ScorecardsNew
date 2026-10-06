@@ -239,7 +239,7 @@ class _BreakScreenState extends State<BreakScreen> with TickerProviderStateMixin
           '${widget.timeoutTotal > 0 ? '   •   Timeout ${widget.timeoutNo} of ${widget.timeoutTotal}' : ''}';
     } else {
       final i = m.innings[0];
-      sub = '${m.teamA} ${i.runs}/${i.wickets} (${i.overs} ov)   •   First innings complete';
+      sub = '${m.inningsTeam(0)} ${i.runs}/${i.wickets} (${i.overs} ov)   •   First innings complete';
     }
     final line = Curves.easeOutCubic.transform(((_intro.value - 0.2) / 0.5).clamp(0.0, 1.0));
     final blink = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(_pulse.value * 2 * math.pi));
@@ -512,25 +512,25 @@ class _BreakScreenState extends State<BreakScreen> with TickerProviderStateMixin
               child: _txt('${v.round()}', 96, w: FontWeight.w900),
             ),
           ),
-          _txt('${m.teamB} need ${m.target} runs from ${m.overs} overs (${m.overs * 6} balls)', 16,
+          _txt('${m.inningsTeam(1)} need ${m.target} runs from ${m.overs} overs (${m.overs * 6} balls)', 16,
               color: Colors.white70),
           const SizedBox(height: 4),
           _txt('Required run rate ${rrr.toStringAsFixed(2)}', 15, color: _accent, w: FontWeight.w700),
         ])),
         const SizedBox(height: 14),
         _panel(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _section('${m.teamA.toUpperCase()} – TOP BATTERS'),
+          _section('${m.inningsTeam(0).toUpperCase()} – TOP BATTERS'),
           if (topBat.isEmpty) _txt('No runs recorded', 14, color: Colors.white54),
           for (final b in topBat)
-            row(m.teamA, b.name, '${b.runs}${b.out ? '' : '*'}',
+            row(m.inningsTeam(0), b.name, '${b.runs}${b.out ? '' : '*'}',
                 '${b.balls} balls • SR ${b.sr.toStringAsFixed(1)}'),
         ])),
         const SizedBox(height: 14),
         _panel(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _section('${m.teamB.toUpperCase()} – TOP BOWLERS'),
+          _section('${m.inningsTeam(1).toUpperCase()} – TOP BOWLERS'),
           if (topBowl.isEmpty) _txt('No bowling recorded', 14, color: Colors.white54),
           for (final b in topBowl)
-            row(m.teamB, b.name, '${b.wkts}/${b.runs}',
+            row(m.inningsTeam(1), b.name, '${b.wkts}/${b.runs}',
                 '${b.overs} ov • Econ ${b.econ.toStringAsFixed(2)}'),
         ])),
       ]),
@@ -549,7 +549,7 @@ class _BreakScreenState extends State<BreakScreen> with TickerProviderStateMixin
         final title = _isTimeout ? 'PLAY RESUMES' : 'SECOND INNINGS';
         final line = _isTimeout
             ? '${m.bowlingTeam} to bowl   •   ${m.battingTeam} ${m.now.runs}/${m.now.wickets}'
-            : '${m.teamB} need ${m.target} runs from ${m.overs * 6} balls';
+            : '${m.inningsTeam(1)} need ${m.target} runs from ${m.overs * 6} balls';
         return Container(
           decoration: BoxDecoration(
             gradient: RadialGradient(
