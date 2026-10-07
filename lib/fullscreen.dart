@@ -10,6 +10,8 @@ class FullScreen extends ChangeNotifier {
   FullScreen._();
 
   bool on = false;
+  bool _wasMaximized = false;
+  bool _busy = false;
 
   bool get _desktop =>
       !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
@@ -22,17 +24,54 @@ class FullScreen extends ChangeNotifier {
     }
   }
 
+  Future<void> _pause() => Future<void>.delayed(const Duration(milliseconds: 60));
+
   Future<void> set(bool v) async {
+    if (_busy || v == on) return;
+    _busy = true;
     on = v;
     notifyListeners();
     try {
       if (_desktop) {
-        await windowManager.setFullScreen(v);
+        if (v) {
+          // remember + leave the maximized state first (avoids a leftover title bar),
+          // then drop the title bar / window buttons and go full screen
+          try {
+            _wasMaximized = await windowManager.isMaximized();
+            if (_wasMaximized) {
+              await windowManager.unmaximize();
+              await _pause();
+            }
+          } catch (_) {}
+          try {
+            await windowManager.setTitleBarStyle(TitleBarStyle.hidden,
+                windowButtonVisibility: false);
+            await _pause();
+          } catch (_) {}
+          await windowManager.setFullScreen(true);
+          await _pause();
+          try {
+            await windowManager.focus();
+          } catch (_) {}
+        } else {
+          await windowManager.setFullScreen(false);
+          await _pause();
+          try {
+            await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+            await _pause();
+          } catch (_) {}
+          try {
+            if (_wasMaximized) await windowManager.maximize();
+          } catch (_) {}
+        }
       } else {
         await SystemChrome.setEnabledSystemUIMode(
             v ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<void> toggle() => set(!on);

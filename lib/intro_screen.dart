@@ -24,16 +24,10 @@ enum IntroKind { team, versus, league, tossResult, winner }
 
 Route<T> _route<T>(Widget page) => PageRouteBuilder<T>(
       opaque: true,
-      transitionDuration: const Duration(milliseconds: 550),
-      reverseTransitionDuration: const Duration(milliseconds: 450),
+      transitionDuration: const Duration(milliseconds: 260),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (_, __, ___) => page,
-      transitionsBuilder: (_, anim, __, child) {
-        final c = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-        return FadeTransition(
-          opacity: c,
-          child: ScaleTransition(scale: Tween<double>(begin: 1.05, end: 1.0).animate(c), child: child),
-        );
-      },
+      transitionsBuilder: (_, anim, __, child) => FadeTransition(opacity: anim, child: child),
     );
 
 /// Full-screen animated presentation that closes by itself (tap or Esc closes early).
@@ -109,7 +103,7 @@ Text _tx(String s, double size,
         fontWeight: w,
         letterSpacing: ls,
         decoration: TextDecoration.none,
-        shadows: const [Shadow(color: Colors.black54, blurRadius: 14, offset: Offset(0, 4))],
+        shadows: const [Shadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 3))],
       ),
     );
 
@@ -180,10 +174,12 @@ class _BackdropState extends State<_Backdrop> with SingleTickerProviderStateMixi
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => SizedBox.expand(
-          child: CustomPaint(painter: _BdPainter(_c.value, widget.c1, widget.c2)),
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) => SizedBox.expand(
+            child: CustomPaint(painter: _BdPainter(_c.value, widget.c1, widget.c2)),
+          ),
         ),
       );
 }
@@ -221,7 +217,7 @@ class _BdPainter extends CustomPainter {
     }
     final rnd = math.Random(11);
     final sp = Paint();
-    for (var i = 0; i < 70; i++) {
+    for (var i = 0; i < 36; i++) {
       final x = rnd.nextDouble() * size.width;
       final y = rnd.nextDouble() * size.height;
       final ph = rnd.nextDouble();
@@ -276,7 +272,8 @@ class _PhotoBadgeState extends State<_PhotoBadge> with SingleTickerProviderState
   Widget build(BuildContext context) {
     final s = widget.size;
     final inner = s * 0.84;
-    return SizedBox(
+    return RepaintBoundary(
+        child: SizedBox(
       width: s,
       height: s,
       child: Stack(alignment: Alignment.center, children: [
@@ -295,12 +292,14 @@ class _PhotoBadgeState extends State<_PhotoBadge> with SingleTickerProviderState
                 ? Image.file(File(widget.path!),
                     fit: BoxFit.cover,
                     alignment: Alignment.topCenter,
+                    cacheWidth: math.max(256, (s * 2).round()),
+                    filterQuality: FilterQuality.medium,
                     errorBuilder: (_, __, ___) => _initials(inner))
                 : _initials(inner),
           ),
         ),
       ]),
-    );
+    ));
   }
 }
 
@@ -313,14 +312,15 @@ class _RingPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
     final r = size.width / 2 - size.width * 0.04;
+    final glowR = r + size.width * 0.05;
     canvas.drawCircle(
       c,
-      r,
+      glowR,
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.07
-        ..color = color.withAlpha(95)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, size.width * 0.05),
+        ..shader = RadialGradient(
+          colors: [Colors.transparent, color.withAlpha(120), Colors.transparent],
+          stops: const [0.80, 0.92, 1.0],
+        ).createShader(Rect.fromCircle(center: c, radius: glowR)),
     );
     final rect = Rect.fromCircle(center: c, radius: r);
     canvas.drawCircle(
@@ -411,11 +411,11 @@ class _IntroScreenState extends State<IntroScreen> with TickerProviderStateMixin
   void initState() {
     super.initState();
     final ms = switch (widget.kind) {
-      IntroKind.team => 6500,
-      IntroKind.versus => 7500,
-      IntroKind.league => 6200,
-      IntroKind.tossResult => 7500,
-      IntroKind.winner => 8000,
+      IntroKind.team => 2800,
+      IntroKind.versus => 3200,
+      IntroKind.league => 3800,
+      IntroKind.tossResult => 3200,
+      IntroKind.winner => 3600,
     };
     _c = AnimationController(vsync: this, duration: Duration(milliseconds: ms))
       ..addStatusListener((s) {
@@ -595,11 +595,7 @@ class _IntroScreenState extends State<IntroScreen> with TickerProviderStateMixin
           widthFactor: nameT.clamp(0.001, 1.0),
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: ShaderMask(
-              shaderCallback: (r) =>
-                  LinearGradient(colors: [Colors.white, card.color]).createShader(r),
-              child: _tx(card.team.toUpperCase(), nameSize, w: FontWeight.w900, ls: 3),
-            ),
+            child: _tx(card.team.toUpperCase(), nameSize, w: FontWeight.w900, ls: 3),
           ),
         ),
       ),
@@ -798,19 +794,16 @@ class _IntroScreenState extends State<IntroScreen> with TickerProviderStateMixin
       }
       final st = 0.12 + i * (0.34 / n);
       final lt = _ease(t, st, st + 0.18, Curves.easeOutBack);
-      letters.add(Opacity(
-        opacity: lt.clamp(0.0, 1.0),
-        child: Transform.translate(
-          offset: Offset(0, (1 - lt) * size * 0.9),
-          child: Text(
-            ch,
-            style: TextStyle(
-              fontSize: size,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              letterSpacing: size * 0.06,
-              decoration: TextDecoration.none,
-            ),
+      letters.add(Transform.translate(
+        offset: Offset(0, (1 - lt) * size * 0.9),
+        child: Text(
+          ch,
+          style: TextStyle(
+            fontSize: size,
+            fontWeight: FontWeight.w900,
+            color: Colors.white.withAlpha((lt.clamp(0.0, 1.0) * 255).round()),
+            letterSpacing: size * 0.06,
+            decoration: TextDecoration.none,
           ),
         ),
       ));
@@ -839,20 +832,26 @@ class _IntroScreenState extends State<IntroScreen> with TickerProviderStateMixin
           SizedBox(height: size * 0.3),
           bar(),
           SizedBox(height: size * 0.4),
-          ShaderMask(
-            blendMode: BlendMode.srcATop,
-            shaderCallback: (r) => LinearGradient(
-              begin: Alignment(-2.0 + 4.0 * shine, -0.4),
-              end: Alignment(-1.0 + 4.0 * shine, 0.4),
-              colors: const [Colors.white, _gold, Colors.white],
-              stops: const [0.0, 0.5, 1.0],
-            ).createShader(r),
-            child: Wrap(
-              alignment: WrapAlignment.center,
-              runSpacing: size * 0.2,
-              children: letters,
-            ),
-          ),
+          shine >= 1.0 || shine <= 0.0
+              ? Wrap(
+                  alignment: WrapAlignment.center,
+                  runSpacing: size * 0.2,
+                  children: letters,
+                )
+              : ShaderMask(
+                  blendMode: BlendMode.srcATop,
+                  shaderCallback: (r) => LinearGradient(
+                    begin: Alignment(-2.0 + 4.0 * shine, -0.4),
+                    end: Alignment(-1.0 + 4.0 * shine, 0.4),
+                    colors: const [Colors.white, _gold, Colors.white],
+                    stops: const [0.0, 0.5, 1.0],
+                  ).createShader(r),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    runSpacing: size * 0.2,
+                    children: letters,
+                  ),
+                ),
           SizedBox(height: size * 0.4),
           bar(),
           if (widget.subtitle != null) ...[
@@ -1300,14 +1299,17 @@ class _TossScreenState extends State<TossScreen> with TickerProviderStateMixin {
             SizedBox(height: base * 0.03),
             Opacity(
               opacity: btn,
-              child: Wrap(alignment: WrapAlignment.center, spacing: base * 0.02, children: [
-                _bigButton('CONFIRM', Icons.check_circle,
-                    () => Navigator.of(context).pop(TossResult(_winner!, bat)), base),
-                TextButton(
-                  onPressed: () => _go(_Ph.winner),
-                  child: const Text('Change decision', style: TextStyle(color: Colors.white54)),
-                ),
-              ]),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: base * 0.025,
+                runSpacing: base * 0.015,
+                children: [
+                  _bigButton('CONFIRM', Icons.check_circle,
+                      () => Navigator.of(context).pop(TossResult(_winner!, bat)), base),
+                  _bigButton('CHANGE DECISION', Icons.undo, () => _go(_Ph.winner), base,
+                      bg: const Color(0xFF1565C0), fg: Colors.white),
+                ],
+              ),
             ),
           ]),
         ),
