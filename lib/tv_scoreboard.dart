@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 import 'app_state.dart';
+import 'fullscreen.dart';
 import 'models.dart';
 
 class _OverRow {
@@ -25,7 +26,7 @@ class CricketTvBoard extends StatelessWidget {
   final int cardInnings; // 0 or 1
   final void Function(int innings) onCardInnings;
   final VoidCallback onToggleCard, onRetire;
-  final VoidCallback onLeague, onEditLeague, onTeams, onToss, onTossResult;
+  final VoidCallback onLeague, onEditLeague, onTeams, onToss, onTossResult, onFullScreen;
 
   const CricketTvBoard({
     super.key,
@@ -51,6 +52,7 @@ class CricketTvBoard extends StatelessWidget {
     required this.onTeams,
     required this.onToss,
     required this.onTossResult,
+    required this.onFullScreen,
   });
 
   static const _gold = Color(0xFFFFC107);
@@ -251,12 +253,20 @@ class CricketTvBoard extends StatelessWidget {
                   bottom: 8,
                   child: Opacity(
                     opacity: 0.45,
-                    child: IconButton(
-                      tooltip: 'Show controls (H)',
-                      color: Colors.white,
-                      icon: const Icon(Icons.keyboard_arrow_up),
-                      onPressed: onToggleControls,
-                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      IconButton(
+                        tooltip: FullScreen.I.on ? 'Exit full screen (F)' : 'Full screen (F)',
+                        color: Colors.white,
+                        icon: Icon(FullScreen.I.on ? Icons.fullscreen_exit : Icons.fullscreen),
+                        onPressed: onFullScreen,
+                      ),
+                      IconButton(
+                        tooltip: 'Show controls (H)',
+                        color: Colors.white,
+                        icon: const Icon(Icons.keyboard_arrow_up),
+                        onPressed: onToggleControls,
+                      ),
+                    ]),
                   ),
                 ),
             ]),
@@ -949,6 +959,16 @@ class CricketTvBoard extends StatelessWidget {
               icon: const Icon(Icons.visibility_off),
               label: const Text('Hide controls'),
             ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: FullScreen.I.on ? _gold : const Color(0xFF00897B),
+                foregroundColor: FullScreen.I.on ? Colors.black : Colors.white,
+                textStyle: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              onPressed: onFullScreen,
+              icon: Icon(FullScreen.I.on ? Icons.fullscreen_exit : Icons.fullscreen),
+              label: Text(FullScreen.I.on ? 'Exit full screen (F)' : 'Full screen (F)'),
+            ),
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
               onPressed: onExit,
@@ -958,7 +978,7 @@ class CricketTvBoard extends StatelessWidget {
           ]),
           SizedBox(height: 6 * cu),
           Text(
-            'Keys: 0-6 runs  •  D wide  •  N no ball  •  B bye  •  L leg bye  •  W wicket  •  R retired hurt  •  U undo  •  S scorecard  •  ←/→ innings  •  H hide  •  Esc exit',
+            'Keys: 0-6 runs  •  D wide  •  N no ball  •  B bye  •  L leg bye  •  W wicket  •  R retired hurt  •  U undo  •  S scorecard  •  ←/→ innings  •  F full screen  •  H hide  •  Esc exit',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 12 * cu, color: Colors.white54, decoration: TextDecoration.none),

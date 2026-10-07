@@ -1,8 +1,17 @@
 import 'package:flutter/material.dart';
 import 'app_state.dart';
+import 'fullscreen.dart';
 
 /// Quick text-size (A-/A+) and display-settings buttons for any AppBar.
 List<Widget> displayActions(BuildContext context) => [
+      AnimatedBuilder(
+        animation: FullScreen.I,
+        builder: (_, __) => IconButton(
+          tooltip: FullScreen.I.on ? 'Exit full screen (F11)' : 'Full screen (F11)',
+          icon: Icon(FullScreen.I.on ? Icons.fullscreen_exit : Icons.fullscreen),
+          onPressed: FullScreen.I.toggle,
+        ),
+      ),
       IconButton(
         tooltip: 'Smaller text',
         icon: const Icon(Icons.text_decrease),

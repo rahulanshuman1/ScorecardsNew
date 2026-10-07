@@ -64,6 +64,32 @@ Future<TossResult?> showToss(BuildContext context,
 
 // ------------------------------------------------------------------ helpers
 
+/// Scales its child down (never up) so everything is visible at once - no scrolling.
+class _Fit extends StatelessWidget {
+  final Widget child;
+  const _Fit({required this.child});
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
+        final w = c.maxWidth.isFinite ? c.maxWidth : MediaQuery.sizeOf(context).width;
+        final h = c.maxHeight.isFinite ? c.maxHeight : MediaQuery.sizeOf(context).height;
+        return SizedBox(
+          width: w,
+          height: h,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(width: w * 0.96, child: child),
+          ),
+        );
+      });
+}
+
+class _NoScroll extends StatelessWidget {
+  final Widget child;
+  const _NoScroll({required this.child});
+  @override
+  Widget build(BuildContext context) => child;
+}
+
 double _ease(double t, double from, double to, Curve c) =>
     c.transform(((t - from) / (to - from)).clamp(0.0, 1.0));
 
@@ -383,7 +409,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
     };
     _c = AnimationController(vsync: this, duration: Duration(milliseconds: ms))
       ..addStatusListener((s) {
-        if (s == AnimationStatus.completed) _close();
+        if (s == AnimationStatus.completed && widget.kind != IntroKind.league) _close();
       })
       ..forward();
   }
@@ -416,29 +442,50 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _close,
+            onTap: widget.kind == IntroKind.league ? null : _close,
             child: Stack(fit: StackFit.expand, children: [
               _Backdrop(_c1, _c2),
               AnimatedBuilder(
                 animation: _c,
                 builder: (context, _) {
                   final t = _c.value;
-                  final out = t > 0.93 ? 1 - (t - 0.93) / 0.07 : 1.0;
+                  final out = (widget.kind != IntroKind.league && t > 0.93)
+                      ? 1 - (t - 0.93) / 0.07
+                      : 1.0;
                   return Opacity(
                     opacity: out.clamp(0.0, 1.0),
                     child: LayoutBuilder(builder: (context, box) => _body(box, t)),
                   );
                 },
               ),
-              const Positioned(
+              Positioned(
                 bottom: 10,
                 left: 0,
                 right: 0,
                 child: Center(
                   child: Text(
-                    'Tap anywhere or press Esc to close',
-                    style: TextStyle(
-                        color: Colors.white24, fontSize: 12, decoration: TextDecoration.none),
+                    widget.kind == IntroKind.league
+                        ? 'Stays on screen until you close it  •  press Esc or the ✕ button'
+                        : 'Tap anywhere or press Esc to close',
+                    style: const TextStyle(
+                        color: Colors.white38, fontSize: 12, decoration: TextDecoration.none),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: SafeArea(
+                  child: Material(
+                    color: Colors.black.withAlpha(120),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      tooltip: 'Close (Esc)',
+                      iconSize: 30,
+                      color: Colors.white,
+                      icon: const Icon(Icons.close),
+                      onPressed: _close,
+                    ),
                   ),
                 ),
               ),
@@ -449,7 +496,9 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _body(BoxConstraints box, double t) {
+  Widget _body(BoxConstraints box, double t) => _Fit(child: _bodyInner(box, t));
+
+  Widget _bodyInner(BoxConstraints box, double t) {
     switch (widget.kind) {
       case IntroKind.team:
         return _captainLayout(box, t, widget.a!,
@@ -458,7 +507,10 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
                 : widget.league!.toUpperCase());
       case IntroKind.tossResult:
         return _captainLayout(box, t, widget.a!,
-            top: 'TOSS RESULT', slam: 'WON THE TOSS', line: widget.line);
+            top: 'TOSS RESULT',
+            slam: 'WON THE TOSS',
+            decision: widget.bat ? 'ELECTED TO BAT' : 'ELECTED TO FIELD',
+            line: widget.line);
       case IntroKind.versus:
         return _versusBody(box, t);
       case IntroKind.league:
@@ -468,7 +520,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
 
   // Team name + captain photo + captain name (also used for the toss winner).
   Widget _captainLayout(BoxConstraints box, double t, TeamCard card,
-      {required String top, String? slam, String? line}) {
+      {required String top, String? slam, String? line, String? decision}) {
     final wide = box.maxWidth / box.maxHeight > 1.2;
     final photoSize = wide
         ? math.min(box.maxHeight * 0.6, box.maxWidth * 0.34)
@@ -532,7 +584,11 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           opacity: slamT.clamp(0.0, 1.0),
           child: Transform.scale(
             scale: 1 + (1 - slamT.clamp(0.0, 1.0)) * 2.2,
-            child: _tx(slam, nameSize * 0.55, color: _gold, w: FontWeight.w900, ls: 5),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.emoji_events, color: _gold, size: nameSize * 0.6),
+              SizedBox(width: nameSize * 0.15),
+              _tx(slam, nameSize * 0.55, color: _gold, w: FontWeight.w900, ls: 5),
+            ]),
           ),
         ),
       ],
@@ -551,6 +607,29 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           ]),
         ),
       ),
+      if (decision != null) ...[
+        SizedBox(height: nameSize * 0.3),
+        Opacity(
+          opacity: lineT,
+          child: Transform.scale(
+            scale: 0.85 + 0.15 * lineT,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: nameSize * 0.4, vertical: nameSize * 0.15),
+              decoration: BoxDecoration(
+                color: _gold.withAlpha(30),
+                border: Border.all(color: _gold, width: 2),
+                borderRadius: BorderRadius.circular(nameSize),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(widget.bat ? Icons.sports_cricket : Icons.sports_baseball,
+                    color: _gold, size: nameSize * 0.55),
+                SizedBox(width: nameSize * 0.2),
+                _tx(decision, nameSize * 0.5, w: FontWeight.w900, ls: 3, color: _gold),
+              ]),
+            ),
+          ),
+        ),
+      ],
       if (line != null) ...[
         SizedBox(height: nameSize * 0.35),
         Opacity(
@@ -558,9 +637,11 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           child: Transform.translate(
             offset: Offset(0, (1 - lineT) * 20),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(widget.bat ? Icons.sports_cricket : Icons.sports_baseball,
-                  color: _gold, size: nameSize * 0.6),
-              SizedBox(width: nameSize * 0.2),
+              if (decision == null) ...[
+                Icon(widget.bat ? Icons.sports_cricket : Icons.sports_baseball,
+                    color: _gold, size: nameSize * 0.6),
+                SizedBox(width: nameSize * 0.2),
+              ],
               Flexible(
                 child: _tx(line, nameSize * 0.42,
                     w: FontWeight.w700, align: wide ? TextAlign.left : TextAlign.center),
@@ -584,7 +665,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
       );
     }
     return Center(
-      child: SingleChildScrollView(
+      child: _NoScroll(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           photo,
           SizedBox(height: box.maxHeight * 0.03),
@@ -643,7 +724,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
       );
     }
     return Center(
-      child: SingleChildScrollView(
+      child: _NoScroll(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           title,
           SizedBox(height: photo * 0.1),
@@ -845,7 +926,9 @@ class _TossScreenState extends State<TossScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _phase(BoxConstraints box) {
+  Widget _phase(BoxConstraints box) => _Fit(child: _phaseInner(box));
+
+  Widget _phaseInner(BoxConstraints box) {
     switch (_ph) {
       case _Ph.ready:
         return _ready(box);
@@ -925,7 +1008,7 @@ class _TossScreenState extends State<TossScreen> with TickerProviderStateMixin {
           ]);
 
     return Center(
-      child: SingleChildScrollView(
+      child: _NoScroll(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           _head(base, 'TOSS'),
           SizedBox(height: base * 0.03),
@@ -1060,7 +1143,7 @@ class _TossScreenState extends State<TossScreen> with TickerProviderStateMixin {
         );
 
     return Center(
-      child: SingleChildScrollView(
+      child: _NoScroll(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           _head(base, 'TOSS RESULT'),
           SizedBox(height: base * 0.015),
@@ -1102,7 +1185,7 @@ class _TossScreenState extends State<TossScreen> with TickerProviderStateMixin {
     final c = _w;
 
     return Center(
-      child: SingleChildScrollView(
+      child: _NoScroll(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           _head(base, 'TOSS WINNER'),
           SizedBox(height: base * 0.015),
@@ -1158,7 +1241,7 @@ class _TossScreenState extends State<TossScreen> with TickerProviderStateMixin {
     final bat = _bat == true;
 
     return Center(
-      child: SingleChildScrollView(
+      child: _NoScroll(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: box.maxWidth * 0.06),
           child: Column(mainAxisSize: MainAxisSize.min, children: [

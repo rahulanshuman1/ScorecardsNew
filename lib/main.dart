@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_state.dart';
+import 'fullscreen.dart';
 import 'models.dart';
 import 'storage.dart';
 import 'cricket_screen.dart';
@@ -11,6 +12,7 @@ import 'excel_import.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppState.I.load();
+  await FullScreen.I.init();
   runApp(const ScorecardApp());
 }
 

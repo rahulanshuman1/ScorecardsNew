@@ -106,7 +106,7 @@ class TeamsScreen extends StatelessWidget {
                   child: Padding(
                     padding: EdgeInsets.all(12),
                     child: Text(
-                      'Excel format: first row = headers "Team" and "Player", one row per player. '
+                      'Excel columns: Team | Player | Captain (C / Yes) | Photo. One row per player. Photo can be a picture placed over the row, an image file name (you then pick the files), a full file path (Windows) or a web link. '
                       'Or one sheet per team (sheet name = team, players in column A).\n'
                       'Photos: place a picture over a player\'s row in the Excel file (Insert > Pictures > Place over cells) '
                       'and it is imported with the player. Or use "Import photos" and pick many images named like the player, e.g. "Rahul Sharma.jpg".\n'

@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:archive/archive.dart' as ar;
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'package:flutter/material.dart';
 import 'package:xml/xml.dart' as x;
 import 'app_state.dart';
@@ -30,11 +32,19 @@ class PendingPhoto {
   PendingPhoto(this.team, this.player, this.bytes, this.ext);
 }
 
+/// A value from the Excel "Photo" column: file name, file path or web link.
+class PhotoRef {
+  final String team, player, ref;
+  PhotoRef(this.team, this.player, this.ref);
+}
+
 class RosterResult {
   final Map<String, List<String>> teams;
-  final List<PendingPhoto> photos;
+  final List<PendingPhoto> photos; // pictures embedded in the workbook
   final Map<String, String> captains; // team -> captain
-  RosterResult(this.teams, this.photos, [this.captains = const {}]);
+  final List<PhotoRef> photoRefs; // "Photo" column text values
+  RosterResult(this.teams, this.photos,
+      [this.captains = const {}, this.photoRefs = const []]);
 }
 
 Iterable<x.XmlElement> _els(x.XmlNode n, String local) =>
@@ -305,6 +315,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
   final out = <String, List<String>>{};
   final photos = <PendingPhoto>[];
   final captains = <String, String>{};
+  final refs = <PhotoRef>[];
 
   bool truthy(String s) {
     final v = s.trim().toLowerCase();
@@ -320,13 +331,16 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
   }
 
   bool isTeamH(String e) => e == 'team' || e == 'teams' || e == 'team name';
+  bool isPhotoH(String e) =>
+      e == 'photo' || e == 'photo path' || e == 'photo file' || e == 'photo url' ||
+      e == 'image' || e == 'picture' || e == 'photograph';
   bool isPlayerH(String e) =>
       e == 'player' || e == 'players' || e == 'player name' || e == 'name';
 
   for (final sh in sheets) {
     final rows = sh.rows.map((r) => r.map((e) => e.trim()).toList()).toList();
     final rowOf = <int, MapEntry<String, String>>{}; // sheet row -> (team, player)
-    var hi = -1, ti = -1, pi = -1, ci = -1;
+    var hi = -1, ti = -1, pi = -1, ci = -1, phi = -1;
     for (var i = 0; i < rows.length && i < 10; i++) {
       final h = rows[i].map((e) => e.toLowerCase()).toList();
       final t = h.indexWhere(isTeamH);
@@ -336,6 +350,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
         ti = t;
         pi = p;
         ci = h.indexWhere((e) => e == 'captain' || e == 'is captain' || e == 'c');
+        phi = h.indexWhere(isPhotoH);
         break;
       }
     }
@@ -355,6 +370,9 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
         if (t.isNotEmpty && player.isNotEmpty) {
           rowOf[sh.rowNums[ri]] = MapEntry(t, player);
           if (ci >= 0 && truthy(cell(ci))) captains[t.trim()] = player.trim();
+          if (phi >= 0 && cell(phi).trim().isNotEmpty) {
+            refs.add(PhotoRef(t.trim(), player.trim(), cell(phi).trim()));
+          }
         }
       }
     } else {
@@ -375,7 +393,7 @@ RosterResult rosterFromSheets(List<SheetData> sheets) {
       if (hit != null) photos.add(PendingPhoto(hit.key, hit.value, img.bytes, img.ext));
     }
   }
-  return RosterResult(out, photos, captains);
+  return RosterResult(out, photos, captains, refs);
 }
 
 Future<RosterResult?> pickRosterFromExcel() async {
@@ -398,6 +416,33 @@ Future<RosterResult?> pickRosterFromExcel() async {
   return rosterFromSheets(readXlsx(bytes));
 }
 
+String _stem(String s) {
+  final base = s.split(RegExp(r'[\\/]')).last;
+  final dot = base.lastIndexOf('.');
+  return dot > 0 ? base.substring(0, dot) : base;
+}
+
+String _extOf(String url) {
+  final path = Uri.tryParse(url)?.path ?? url;
+  final dot = path.lastIndexOf('.');
+  if (dot >= 0 && path.length - dot <= 6) return path.substring(dot).toLowerCase();
+  return '.jpg';
+}
+
+Future<List<int>?> _download(String url) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final req = await client.getUrl(Uri.parse(url));
+    final res = await req.close().timeout(const Duration(seconds: 20));
+    if (res.statusCode != 200) return null;
+    return await consolidateHttpClientResponseBytes(res);
+  } catch (_) {
+    return null;
+  } finally {
+    client.close();
+  }
+}
+
 Future<void> importRosterFlow(BuildContext context) async {
   final messenger = ScaffoldMessenger.of(context);
   try {
@@ -417,9 +462,68 @@ Future<void> importRosterFlow(BuildContext context) async {
         photoCount++;
       } catch (_) {}
     }
+    // "Photo" column: web link / file path are resolved now, plain file names
+    // are matched against image files the user picks next.
+    final have = <String>{for (final p in r.photos) '${p.team}|${p.player}'};
+    final pending = <PhotoRef>[];
+    for (final ref in r.photoRefs) {
+      if (have.contains('${ref.team}|${ref.player}')) continue; // picture already imported
+      final v = ref.ref;
+      final low = v.toLowerCase();
+      try {
+        if (low.startsWith('http://') || low.startsWith('https://')) {
+          final bytes = await _download(v);
+          if (bytes != null) {
+            await AppState.I.setPhotoBytes(ref.team, ref.player, bytes, _extOf(v));
+            photoCount++;
+          }
+          continue;
+        }
+        if (File(v).existsSync()) {
+          await AppState.I.setPhoto(ref.team, ref.player, v);
+          photoCount++;
+          continue;
+        }
+      } catch (_) {}
+      pending.add(ref);
+    }
+    if (pending.isNotEmpty && context.mounted) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Select the photo files'),
+          content: Text(
+              'The Excel file lists ${pending.length} photo file name(s) (for example "${pending.first.ref}"). '
+              'Select those image files now so they can be attached to the players.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Skip')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Select files')),
+          ],
+        ),
+      );
+      if (go == true) {
+        final picked = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: true);
+        if (picked != null) {
+          for (final f in picked.files) {
+            final path = f.path;
+            if (path == null) continue;
+            final key = _norm(_stem(f.name));
+            for (final ref in pending) {
+              if (_norm(_stem(ref.ref)) == key) {
+                try {
+                  await AppState.I.setPhoto(ref.team, ref.player, path);
+                  photoCount++;
+                } catch (_) {}
+              }
+            }
+          }
+        }
+      }
+    }
     final players = r.teams.values.fold<int>(0, (s, l) => s + l.length);
     messenger.showSnackBar(SnackBar(
         content: Text('Imported ${r.teams.length} teams, $players players'
+            '${r.captains.isNotEmpty ? ', ${r.captains.length} captains' : ''}'
             '${photoCount > 0 ? ', $photoCount photos' : ''}')));
   } catch (e) {
     messenger.showSnackBar(SnackBar(

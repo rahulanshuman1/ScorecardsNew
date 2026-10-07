@@ -7,6 +7,7 @@ import 'app_state.dart';
 import 'break_screen.dart';
 import 'events_anim.dart';
 import 'export_xlsx.dart';
+import 'fullscreen.dart';
 import 'intro_screen.dart';
 import 'milestone_anim.dart';
 import 'tv_scoreboard.dart';
@@ -34,6 +35,7 @@ class _CricketScreenState extends State<CricketScreen> {
   @override
   void initState() {
     super.initState();
+    FullScreen.I.addListener(_fsChanged);
     // Before the toss the scorer may want the pre-match options first, so the
     // opener prompt waits until the toss is done (or the first ball is scored).
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -43,8 +45,9 @@ class _CricketScreenState extends State<CricketScreen> {
 
   @override
   void dispose() {
+    FullScreen.I.removeListener(_fsChanged);
     _tvFocus.dispose();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (!FullScreen.I.on) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
@@ -58,9 +61,13 @@ class _CricketScreenState extends State<CricketScreen> {
     _tvFocus.requestFocus();
   }
 
+  void _fsChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _exitTv() {
     setState(() => _tv = false);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (!FullScreen.I.on) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
@@ -102,6 +109,8 @@ class _CricketScreenState extends State<CricketScreen> {
       setState(() => _tvInn = 0);
     } else if (k == LogicalKeyboardKey.arrowRight) {
       setState(() => _tvInn = 1);
+    } else if (k == LogicalKeyboardKey.f11 || k == LogicalKeyboardKey.keyF) {
+      FullScreen.I.toggle();
     } else if (k == LogicalKeyboardKey.escape) {
       _exitTv();
     } else {
@@ -145,6 +154,7 @@ class _CricketScreenState extends State<CricketScreen> {
           onTeams: _showBoth,
           onToss: _toss,
           onTossResult: _showTossResult,
+          onFullScreen: FullScreen.I.toggle,
         ),
       ),
     );
@@ -896,14 +906,7 @@ class _CricketScreenState extends State<CricketScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final i = m.now;
-    final canScore = !(m.finished || m.inningsOver);
-    return Scaffold(
-      appBar: _tv ? null : AppBar(
-        title: Text('${m.teamA} vs ${m.teamB}'),
-        actions: [
+  List<Widget> _barActions() => [
           ...displayActions(context),
           IconButton(
             tooltip: 'TV scoreboard',
@@ -953,13 +956,59 @@ class _CricketScreenState extends State<CricketScreen> {
               PopupMenuItem(value: 'copy', child: Text('Copy scorecard text')),
             ],
           ),
-        ],
+      ];
+
+  Widget _floatBar() => Theme(
+        data: Theme.of(context).copyWith(
+          iconButtonTheme: IconButtonThemeData(
+            style: IconButton.styleFrom(foregroundColor: Colors.white),
+          ),
+        ),
+        child: Material(
+          color: Colors.black.withAlpha(150),
+          borderRadius: BorderRadius.circular(28),
+          child: IconTheme(
+            data: const IconThemeData(color: Colors.white),
+            child: Row(mainAxisSize: MainAxisSize.min, children: _barActions()),
+          ),
+        ),
+      );
+
+  /// Full-screen frame: F11 / Esc handling and a floating toolbar (the app bar is hidden).
+  Widget _fsFrame(Widget child) {
+    final showBar = !_tv && FullScreen.I.on;
+    return Focus(
+      autofocus: !_tv,
+      onKeyEvent: (n, e) {
+        if (_tv || e is! KeyDownEvent) return KeyEventResult.ignored;
+        if (e.logicalKey == LogicalKeyboardKey.f11 ||
+            (FullScreen.I.on && e.logicalKey == LogicalKeyboardKey.escape)) {
+          FullScreen.I.toggle();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(children: [
+        Positioned.fill(child: child),
+        if (showBar) Positioned(top: 6, right: 6, child: SafeArea(child: _floatBar())),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final i = m.now;
+    final canScore = !(m.finished || m.inningsOver);
+    return Scaffold(
+      appBar: (_tv || FullScreen.I.on) ? null : AppBar(
+        title: Text('${m.teamA} vs ${m.teamB}'),
+        actions: _barActions(),
       ),
-      body: EventOverlay(
+      body: _fsFrame(EventOverlay(
         key: _fx,
         child: _tv ? _tvBody() : Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 700),
+          constraints: BoxConstraints(maxWidth: FullScreen.I.on ? 1000 : 700),
           child: ListView(padding: const EdgeInsets.all(16), children: [
             if (m.preMatch) _preMatchCard(),
             Card(
@@ -1055,7 +1104,7 @@ class _CricketScreenState extends State<CricketScreen> {
             for (int k = 0; k <= m.current; k++) _inningsCard(k),
           ]),
         ),
-      )),
+      ))),
     );
   }
 }
