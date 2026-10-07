@@ -155,6 +155,7 @@ class _CricketScreenState extends State<CricketScreen> {
           onToss: _toss,
           onTossResult: _showTossResult,
           onFullScreen: FullScreen.I.toggle,
+          onWinner: _announceWinner,
         ),
       ),
     );
@@ -173,6 +174,7 @@ class _CricketScreenState extends State<CricketScreen> {
   /// Add a ball and play the matching animation (Six, Four, No Ball, Wide, Out).
   void _score(Ball b) {
     final before = m.now.balls.length;
+    final wasFinished = m.finished;
     _do(() => m.addBall(b));
     if (m.now.balls.length <= before) {
       _ensure();
@@ -215,11 +217,17 @@ class _CricketScreenState extends State<CricketScreen> {
       }
     }
     // Show the animation first; ask for the new batter / bowler only afterwards.
+    final justFinished = !wasFinished && m.finished;
+    void after() {
+      _ensure();
+      if (justFinished) _announceWinner();
+    }
+
     final fx = _fx.currentState;
     if (fx == null) {
-      _ensure();
+      after();
     } else {
-      fx.show(k, milestone: milestone, onDone: _ensure);
+      fx.show(k, milestone: milestone, onDone: after);
     }
   }
 
@@ -415,6 +423,26 @@ class _CricketScreenState extends State<CricketScreen> {
     _ensure();
   }
 
+  /// Winning team, captain photo and the margin ("Team A won by 6 runs").
+  Future<void> _announceWinner() async {
+    if (!mounted || !m.finished) return;
+    final w = m.winnerIdx;
+    if (w < 0) return; // tied match - nothing to announce
+    String sc(int k) {
+      final i = m.innings[k];
+      return '${m.inningsTeam(k)} ${i.runs}/${i.wickets} (${i.overs} ov)';
+    }
+
+    await showIntro(
+      context,
+      kind: IntroKind.winner,
+      a: _teamCard(w),
+      league: m.league.isEmpty ? null : m.league,
+      decision: '${m.teamAt(w)} ${m.winMargin}'.toUpperCase(),
+      line: '${sc(0)}   •   ${sc(1)}',
+    );
+  }
+
   Future<void> _showTossResult() async {
     if (!m.tossDecided) return;
     await showIntro(
@@ -579,7 +607,9 @@ class _CricketScreenState extends State<CricketScreen> {
       _do(m.endInnings);
       await _inningsBreak();
     } else {
+      final was = m.finished;
       _act(m.endInnings);
+      if (!was && m.finished) _announceWinner();
     }
   }
 
@@ -915,7 +945,9 @@ class _CricketScreenState extends State<CricketScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
-              if (v == 'league') {
+              if (v == 'winner') {
+                _announceWinner();
+              } else if (v == 'league') {
                 _showLeague();
               } else if (v == 'editleague') {
                 _editLeague();
@@ -938,6 +970,8 @@ class _CricketScreenState extends State<CricketScreen> {
               }
             },
             itemBuilder: (_) => [
+              if (m.finished && m.winnerIdx >= 0)
+                const PopupMenuItem(value: 'winner', child: Text('Show winner')),
               const PopupMenuItem(value: 'league', child: Text('Show league name')),
               const PopupMenuItem(value: 'editleague', child: Text('Edit league name')),
               if (m.preMatch) ...[

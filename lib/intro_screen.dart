@@ -20,7 +20,7 @@ class TossResult {
   const TossResult(this.winner, this.bat);
 }
 
-enum IntroKind { team, versus, league, tossResult }
+enum IntroKind { team, versus, league, tossResult, winner }
 
 Route<T> _route<T>(Widget page) => PageRouteBuilder<T>(
       opaque: true,
@@ -45,6 +45,7 @@ Future<void> showIntro(
   String? league,
   String? subtitle,
   String? line,
+  String? decision,
   bool bat = true,
 }) =>
     Navigator.of(context).push(_route<void>(IntroScreen(
@@ -54,6 +55,7 @@ Future<void> showIntro(
       league: league,
       subtitle: subtitle,
       line: line,
+      decision: decision,
       bat: bat,
     )));
 
@@ -373,7 +375,7 @@ Widget _teamTile(TeamCard c, double photo, double pop, double txt) => Column(
 class IntroScreen extends StatefulWidget {
   final IntroKind kind;
   final TeamCard? a, b;
-  final String? league, subtitle, line;
+  final String? league, subtitle, line, decision;
   final bool bat;
   const IntroScreen({
     super.key,
@@ -383,15 +385,22 @@ class IntroScreen extends StatefulWidget {
     this.league,
     this.subtitle,
     this.line,
+    this.decision,
     this.bat = true,
   });
   @override
   State<IntroScreen> createState() => _IntroScreenState();
 }
 
-class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStateMixin {
+class _IntroScreenState extends State<IntroScreen> with TickerProviderStateMixin {
   late final AnimationController _c;
+  late final AnimationController _loop =
+      AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat();
+  late final List<_Cf> _conf = _makeConf(120);
   bool _closing = false;
+
+  /// Every presentation stays on screen until the user closes it (X button / Esc).
+  bool get _persistent => true;
 
   Color get _c1 => widget.a?.color ?? _gold;
   Color get _c2 => widget.kind == IntroKind.versus
@@ -406,10 +415,11 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
       IntroKind.versus => 7500,
       IntroKind.league => 6200,
       IntroKind.tossResult => 7500,
+      IntroKind.winner => 8000,
     };
     _c = AnimationController(vsync: this, duration: Duration(milliseconds: ms))
       ..addStatusListener((s) {
-        if (s == AnimationStatus.completed && widget.kind != IntroKind.league) _close();
+        if (s == AnimationStatus.completed && !_persistent) _close();
       })
       ..forward();
   }
@@ -417,6 +427,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
   @override
   void dispose() {
     _c.dispose();
+    _loop.dispose();
     super.dispose();
   }
 
@@ -442,14 +453,21 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: widget.kind == IntroKind.league ? null : _close,
+            onTap: _persistent ? null : _close,
             child: Stack(fit: StackFit.expand, children: [
               _Backdrop(_c1, _c2),
+              if (widget.kind == IntroKind.winner)
+                AnimatedBuilder(
+                  animation: _loop,
+                  builder: (_, __) => SizedBox.expand(
+                    child: CustomPaint(painter: _ConfPainter(_loop.value, _conf, 190)),
+                  ),
+                ),
               AnimatedBuilder(
                 animation: _c,
                 builder: (context, _) {
                   final t = _c.value;
-                  final out = (widget.kind != IntroKind.league && t > 0.93)
+                  final out = (!_persistent && t > 0.93)
                       ? 1 - (t - 0.93) / 0.07
                       : 1.0;
                   return Opacity(
@@ -464,7 +482,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
                 right: 0,
                 child: Center(
                   child: Text(
-                    widget.kind == IntroKind.league
+                    _persistent
                         ? 'Stays on screen until you close it  •  press Esc or the ✕ button'
                         : 'Tap anywhere or press Esc to close',
                     style: const TextStyle(
@@ -496,7 +514,10 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _body(BoxConstraints box, double t) => _Fit(child: _bodyInner(box, t));
+  Widget _body(BoxConstraints box, double t) => Padding(
+        padding: const EdgeInsets.only(top: 48, bottom: 36),
+        child: _Fit(child: _bodyInner(box, t)),
+      );
 
   Widget _bodyInner(BoxConstraints box, double t) {
     switch (widget.kind) {
@@ -511,6 +532,15 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
             slam: 'WON THE TOSS',
             decision: widget.bat ? 'ELECTED TO BAT' : 'ELECTED TO FIELD',
             line: widget.line);
+      case IntroKind.winner:
+        return _captainLayout(box, t, widget.a!,
+            top: (widget.league == null || widget.league!.isEmpty)
+                ? 'MATCH RESULT'
+                : widget.league!.toUpperCase(),
+            slam: 'MATCH WINNER',
+            decision: widget.decision,
+            decisionIcon: Icons.emoji_events,
+            line: widget.line);
       case IntroKind.versus:
         return _versusBody(box, t);
       case IntroKind.league:
@@ -520,7 +550,11 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
 
   // Team name + captain photo + captain name (also used for the toss winner).
   Widget _captainLayout(BoxConstraints box, double t, TeamCard card,
-      {required String top, String? slam, String? line, String? decision}) {
+      {required String top,
+      String? slam,
+      String? line,
+      String? decision,
+      IconData? decisionIcon}) {
     final wide = box.maxWidth / box.maxHeight > 1.2;
     final photoSize = wide
         ? math.min(box.maxHeight * 0.6, box.maxWidth * 0.34)
@@ -592,6 +626,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           ),
         ),
       ],
+      if (card.captain.isNotEmpty) ...[
       SizedBox(height: nameSize * 0.3),
       Opacity(
         opacity: capT,
@@ -607,6 +642,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
           ]),
         ),
       ),
+      ],
       if (decision != null) ...[
         SizedBox(height: nameSize * 0.3),
         Opacity(
@@ -621,10 +657,15 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
                 borderRadius: BorderRadius.circular(nameSize),
               ),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(widget.bat ? Icons.sports_cricket : Icons.sports_baseball,
+                Icon(decisionIcon ?? (widget.bat ? Icons.sports_cricket : Icons.sports_baseball),
                     color: _gold, size: nameSize * 0.55),
                 SizedBox(width: nameSize * 0.2),
-                _tx(decision, nameSize * 0.5, w: FontWeight.w900, ls: 3, color: _gold),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: _tx(decision, nameSize * 0.5, w: FontWeight.w900, ls: 3, color: _gold),
+                  ),
+                ),
               ]),
             ),
           ),

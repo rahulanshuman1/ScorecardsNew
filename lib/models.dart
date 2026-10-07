@@ -417,6 +417,29 @@ class CricketMatch extends SportMatch {
     return finished ? '$s • $result' : '$s • In progress';
   }
 
+  /// Index (0 = teamA, 1 = teamB) of the winning team; -1 if not finished or tied.
+  int get winnerIdx {
+    if (!finished) return -1;
+    final a = innings[0].runs, b = innings[1].runs;
+    if (b >= target) return 1 - batFirst; // chasing team
+    if (b < a) return batFirst; // team that batted first
+    return -1;
+  }
+
+  /// "won by 6 runs" / "won by 4 wickets" ('' when there is no winner).
+  String get winMargin {
+    final a = innings[0].runs, b = innings[1].runs;
+    if (b >= target) {
+      final w = 10 - innings[1].wickets;
+      return 'won by $w ${w == 1 ? 'wicket' : 'wickets'}';
+    }
+    if (b < a) {
+      final r = a - b;
+      return 'won by $r ${r == 1 ? 'run' : 'runs'}';
+    }
+    return '';
+  }
+
   /// Plain ASCII scorecard (used for PDF export and copy).
   String get scorecardText {
     final sb = StringBuffer();

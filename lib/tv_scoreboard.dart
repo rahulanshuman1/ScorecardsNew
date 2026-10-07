@@ -26,7 +26,7 @@ class CricketTvBoard extends StatelessWidget {
   final int cardInnings; // 0 or 1
   final void Function(int innings) onCardInnings;
   final VoidCallback onToggleCard, onRetire;
-  final VoidCallback onLeague, onEditLeague, onTeams, onToss, onTossResult, onFullScreen;
+  final VoidCallback onLeague, onEditLeague, onTeams, onToss, onTossResult, onFullScreen, onWinner;
 
   const CricketTvBoard({
     super.key,
@@ -53,6 +53,7 @@ class CricketTvBoard extends StatelessWidget {
     required this.onToss,
     required this.onTossResult,
     required this.onFullScreen,
+    required this.onWinner,
   });
 
   static const _gold = Color(0xFFFFC107);
@@ -923,6 +924,17 @@ class CricketTvBoard extends StatelessWidget {
                 onPressed: onToss,
                 icon: const Icon(Icons.monetization_on),
                 label: Text(m.tossDecided ? 'Edit toss' : 'Toss'),
+              ),
+            if (m.finished && m.winnerIdx >= 0)
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _gold,
+                  foregroundColor: Colors.black,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onPressed: onWinner,
+                icon: const Icon(Icons.emoji_events),
+                label: const Text('Show winner'),
               ),
             if (m.tossDecided)
               OutlinedButton.icon(
