@@ -520,24 +520,65 @@ class CricketMatch extends SportMatch {
 
 // ---------------- FOOTBALL ----------------
 
-class FootballEvent {
-  String type; // goal, yellow, red, sub, owngoal
-  int team; // 0 or 1
+/// One kick of a penalty shootout.
+class PenKick {
+  int team;
   String player;
-  int minute;
-  FootballEvent(this.type, this.team, this.player, this.minute);
+  bool scored;
+  String? detail;
+  PenKick(this.team, this.player, this.scored, [this.detail]);
 
-  Map<String, dynamic> toJson() => {'t': type, 'team': team, 'p': player, 'm': minute};
-  factory FootballEvent.fromJson(Map<String, dynamic> j) =>
-      FootballEvent(j['t'], j['team'], j['p'], j['m']);
+  Map<String, dynamic> toJson() => {'t': team, 'p': player, 's': scored, 'd': detail};
+  factory PenKick.fromJson(Map<String, dynamic> j) =>
+      PenKick(j['t'], (j['p'] ?? '') as String, j['s'], j['d']);
+}
+
+/// goal, owngoal, yellow, yellow2 (second yellow = sent off), red, sub (player = out,
+/// other = in), pen_miss, var, injury, shot, sot, corner, foul, offside
+class FootballEvent {
+  String type;
+  int team;
+  String player;
+  String? other; // assist / player coming on
+  String? detail;
+  int seconds; // match clock when it happened
+  int period; // clock phase: 1 = 1st half, 3 = 2nd half, 5 / 7 = extra time
+  bool cancelled; // goal disallowed by VAR
+  FootballEvent(this.type, this.team, this.player, this.seconds, this.period,
+      {this.other, this.detail, this.cancelled = false});
+
+  Map<String, dynamic> toJson() => {
+        't': type, 'team': team, 'p': player, 'o': other, 'd': detail,
+        's': seconds, 'pe': period, 'c': cancelled,
+      };
+
+  factory FootballEvent.fromJson(Map<String, dynamic> j) {
+    // older saved matches only had 'm' (minute)
+    final int secs = (j['s'] ?? (((j['m'] ?? 1) as int) - 1) * 60) as int;
+    return FootballEvent(j['t'], j['team'], (j['p'] ?? '') as String, secs,
+        (j['pe'] ?? 1) as int,
+        other: j['o'], detail: j['d'], cancelled: (j['c'] ?? false) as bool);
+  }
 }
 
 class FootballMatch extends SportMatch {
   List<FootballEvent> events;
-  int seconds; // elapsed match time
-  int period; // 1,2 = halves, 3,4 = extra time
-  bool finished;
-  List<String> playersA, playersB;
+  int seconds; // match clock
+  /// 0 pre-match, 1 first half, 2 half time, 3 second half, 4 full time,
+  /// 5 extra time 1st half, 6 extra time break, 7 extra time 2nd half,
+  /// 8 end of extra time, 9 penalty shootout, 10 finished
+  int phase;
+  int halfMinutes, etMinutes, maxSubs;
+  bool knockout; // draw -> extra time -> penalties
+  Map<int, int> added; // announced added time per clock phase (minutes)
+  List<String> playersA, playersB; // squads
+  List<String> startA, startB, benchA, benchB;
+  List<PenKick> shootout;
+  int shootFirst; // team that takes the first shootout kick
+  int possA, possB; // possession seconds
+  String? potm; // player of the match
+  String league;
+  String captainA, captainB;
 
   FootballMatch({
     required String id,
@@ -546,35 +587,426 @@ class FootballMatch extends SportMatch {
     DateTime? date,
     List<FootballEvent>? events,
     this.seconds = 0,
-    this.period = 1,
-    this.finished = false,
+    this.phase = 0,
+    this.halfMinutes = 45,
+    this.etMinutes = 15,
+    this.maxSubs = 5,
+    this.knockout = false,
+    Map<int, int>? added,
     List<String>? playersA,
     List<String>? playersB,
+    List<String>? startA,
+    List<String>? startB,
+    List<String>? benchA,
+    List<String>? benchB,
+    List<PenKick>? shootout,
+    this.shootFirst = 0,
+    this.possA = 0,
+    this.possB = 0,
+    this.potm,
+    this.league = '',
+    this.captainA = '',
+    this.captainB = '',
   })  : events = events ?? [],
+        added = added ?? {},
         playersA = playersA ?? [],
         playersB = playersB ?? [],
+        startA = startA ?? [],
+        startB = startB ?? [],
+        benchA = benchA ?? [],
+        benchB = benchB ?? [],
+        shootout = shootout ?? [],
         super(id, teamA, teamB, date ?? DateTime.now());
 
   @override
   String get sport => 'football';
 
-  int get minute => seconds ~/ 60 + 1;
+  // ------------------------------------------------------------- clock / phase
 
-  int score(int team) =>
-      events.where((e) => (e.type == 'goal' && e.team == team) ||
-          (e.type == 'owngoal' && e.team != team)).length;
+  bool get finished => phase == 10;
+  bool get preMatch => phase == 0;
+  bool get clockPhase => phase == 1 || phase == 3 || phase == 5 || phase == 7;
 
-  int count(String type, int team) =>
-      events.where((e) => e.type == type && e.team == team).length;
+  /// The clock phase an event belongs to (breaks use the period just played).
+  int get activePeriod {
+    const map = {0: 1, 1: 1, 2: 1, 3: 3, 4: 3, 5: 5, 6: 5, 7: 7, 8: 7, 9: 7, 10: 7};
+    return map[phase] ?? 1;
+  }
 
-  String get periodLabel =>
-      const ['', '1st Half', '2nd Half', 'Extra Time 1', 'Extra Time 2'][period];
+  int periodEndMin(int p) {
+    switch (p) {
+      case 1:
+        return halfMinutes;
+      case 3:
+        return 2 * halfMinutes;
+      case 5:
+        return 2 * halfMinutes + etMinutes;
+      default:
+        return 2 * halfMinutes + 2 * etMinutes;
+    }
+  }
+
+  String get phaseLabel => const [
+        'Pre-match', '1st half', 'Half time', '2nd half', 'Full time',
+        'Extra time – 1st half', 'Extra time – half time', 'Extra time – 2nd half',
+        'End of extra time', 'Penalty shootout', 'Finished',
+      ][phase];
+
+  int addedFor(int p) => added[p] ?? 0;
+
+  /// Seconds played beyond the scheduled end of the current half (stoppage time).
+  int get stoppageSecs => clockPhase ? max(0, seconds - periodEndMin(phase) * 60) : 0;
+
+  String labelAt(int secs, int period) {
+    final minute = secs ~/ 60 + 1;
+    final end = periodEndMin(period);
+    return minute > end ? '$end+${minute - end}' : '$minute';
+  }
+
+  String labelFor(FootballEvent e) => labelAt(e.seconds, e.period);
+
+  /// Moves to the next phase (kick-off, half time, second half ...).
+  void advance() {
+    switch (phase) {
+      case 0:
+        phase = 1;
+        seconds = 0;
+        break;
+      case 1:
+        phase = 2;
+        break;
+      case 2:
+        phase = 3;
+        seconds = halfMinutes * 60;
+        break;
+      case 3:
+        phase = 4;
+        break;
+      case 4:
+        phase = 5;
+        seconds = 2 * halfMinutes * 60;
+        break;
+      case 5:
+        phase = 6;
+        break;
+      case 6:
+        phase = 7;
+        seconds = (2 * halfMinutes + etMinutes) * 60;
+        break;
+      case 7:
+        phase = 8;
+        break;
+      case 8:
+        phase = 9;
+        break;
+      case 9:
+        phase = 10;
+        break;
+    }
+  }
+
+  // ---------------------------------------------------------------- squads
+
+  String teamAt(int t) => t == 0 ? teamA : teamB;
+  List<String> squad(int t) => t == 0 ? playersA : playersB;
+  List<String> starters(int t) => t == 0 ? startA : startB;
+  List<String> bench(int t) => t == 0 ? benchA : benchB;
+  bool hasLineup(int t) => starters(t).isNotEmpty;
+
+  Iterable<FootballEvent> _ev(String type, int t) =>
+      events.where((e) => e.type == type && e.team == t);
+
+  Set<String> sentOff(int t) => events
+      .where((e) => e.team == t && (e.type == 'red' || e.type == 'yellow2'))
+      .map((e) => e.player)
+      .toSet();
+  Set<String> subbedOff(int t) => _ev('sub', t).map((e) => e.player).toSet();
+  Set<String> subbedOn(int t) =>
+      _ev('sub', t).map((e) => e.other ?? '').where((s) => s.isNotEmpty).toSet();
+
+  /// Players currently on the pitch (starters + substitutes - subbed off - sent off).
+  List<String> onPitch(int t) {
+    final red = sentOff(t);
+    if (!hasLineup(t)) return squad(t).where((p) => !red.contains(p)).toList();
+    final gone = {...red, ...subbedOff(t)};
+    return [...starters(t), ...subbedOn(t)].where((p) => !gone.contains(p)).toList();
+  }
+
+  List<String> benchAvailable(int t) {
+    final used = subbedOn(t);
+    final red = sentOff(t);
+    return bench(t).where((p) => !used.contains(p) && !red.contains(p)).toList();
+  }
+
+  int onPitchCount(int t) => hasLineup(t) ? onPitch(t).length : 11 - sentOff(t).length;
+
+  int subsUsed(int t) => _ev('sub', t).length;
+  int get subsAllowed => maxSubs + (phase >= 5 ? 1 : 0); // +1 in extra time
+
+  int yellowsOf(int t, String p) =>
+      events.where((e) => e.type == 'yellow' && e.team == t && e.player == p).length;
+  int goalsBy(int t, String p) => events
+      .where((e) => e.type == 'goal' && !e.cancelled && e.team == t && e.player == p)
+      .length;
+
+  // ---------------------------------------------------------------- numbers
+
+  int score(int team) => events
+      .where((e) =>
+          !e.cancelled &&
+          ((e.type == 'goal' && e.team == team) || (e.type == 'owngoal' && e.team != team)))
+      .length;
+
+  int count(String type, int t) =>
+      events.where((e) => e.type == type && e.team == t && !e.cancelled).length;
+  int yellowCards(int t) => count('yellow', t) + count('yellow2', t);
+  int redCards(int t) => count('red', t) + count('yellow2', t);
+  int shots(int t) => count('shot', t) + count('sot', t);
+  int possession(int t) {
+    final tot = possA + possB;
+    if (tot == 0) return 0;
+    return ((t == 0 ? possA : possB) * 100 / tot).round();
+  }
+
+  // -------------------------------------------------------- penalty shootout
+
+  int shootScore(int t) => shootout.where((k) => k.team == t && k.scored).length;
+  int kicks(int t) => shootout.where((k) => k.team == t).length;
+  int get nextShooter => shootout.length % 2 == 0 ? shootFirst : 1 - shootFirst;
+
+  /// Best of five, then sudden death; ends as soon as one side cannot be caught.
+  bool get shootDecided {
+    if (shootout.isEmpty) return false;
+    final ka = kicks(0), kb = kicks(1), sa = shootScore(0), sb = shootScore(1);
+    if (ka >= 5 && kb >= 5) return ka == kb && sa != sb;
+    final remA = ka < 5 ? 5 - ka : 0;
+    final remB = kb < 5 ? 5 - kb : 0;
+    return sa > sb + remB || sb > sa + remA;
+  }
+
+  int get shootWinner => shootDecided ? (shootScore(0) > shootScore(1) ? 0 : 1) : -1;
+
+  /// Players who may take the next kick: on the pitch and not yet used this round.
+  List<String> shootEligible(int t) {
+    final pool = onPitch(t);
+    if (pool.isEmpty) return [];
+    final counts = {
+      for (final p in pool) p: shootout.where((k) => k.team == t && k.player == p).length,
+    };
+    final low = counts.values.reduce(min);
+    return pool.where((p) => counts[p] == low).toList();
+  }
+
+  // ----------------------------------------------------------------- result
+
+  bool get drawn => score(0) == score(1);
+
+  /// Label of the main "next step" button for the current phase.
+  String get primaryLabel {
+    switch (phase) {
+      case 0:
+        return 'Kick off';
+      case 1:
+        return 'End 1st half';
+      case 2:
+        return 'Start 2nd half';
+      case 3:
+        return 'End 2nd half';
+      case 4:
+        return knockout && drawn ? 'Start extra time' : 'Finish match';
+      case 5:
+        return 'End extra-time 1st half';
+      case 6:
+        return 'Start extra-time 2nd half';
+      case 7:
+        return 'End extra time';
+      case 8:
+        return knockout && drawn ? 'Go to penalties' : 'Finish match';
+      case 9:
+        return 'Finish match';
+      default:
+        return 'Finished';
+    }
+  }
+
+  /// Second choice at full time of a drawn knockout match (straight to penalties).
+  String? get altLabel => (phase == 4 && knockout && drawn) ? 'Go to penalties' : null;
+
+  /// "Name 23'" lines for the goals that count for team [t] (own goals credited too).
+  List<String> scorers(int t) {
+    final out = <String>[];
+    for (final e in events) {
+      if (e.cancelled) continue;
+      if (e.type == 'goal' && e.team == t) {
+        final who = e.player.isEmpty ? teamAt(t) : e.player;
+        out.add("$who${e.detail == 'penalty' ? ' (pen)' : ''} ${labelFor(e)}'");
+      } else if (e.type == 'owngoal' && e.team != t) {
+        out.add("${e.player} (OG) ${labelFor(e)}'");
+      }
+    }
+    return out;
+  }
+
+  /// Team index (0 / 1) of the winner, -1 when drawn or not finished.
+  int get winnerIdx {
+    if (!finished) return -1;
+    if (shootout.isNotEmpty && shootWinner >= 0) return shootWinner;
+    final a = score(0), b = score(1);
+    if (a > b) return 0;
+    if (b > a) return 1;
+    return -1;
+  }
+
+  /// "won 2-1" / "won 4-3 on penalties"
+  String get winText {
+    final w = winnerIdx;
+    if (w < 0) return '';
+    if (shootout.isNotEmpty && shootWinner >= 0) {
+      return 'won ${shootScore(w)}-${shootScore(1 - w)} on penalties';
+    }
+    return 'won ${score(w)}-${score(1 - w)}';
+  }
+
+  String get result {
+    if (!finished) return '';
+    final a = score(0), b = score(1);
+    final w = winnerIdx;
+    if (w < 0) return 'Draw $a-$b';
+    if (shootout.isNotEmpty && shootWinner >= 0) {
+      return '${teamAt(w)} won ${shootScore(w)}-${shootScore(1 - w)} on penalties (after $a-$b)';
+    }
+    return '${teamAt(w)} won ${score(w)}-${score(1 - w)}';
+  }
 
   @override
   String get summary {
-    final s = '$teamA ${score(0)} - ${score(1)} $teamB';
+    final pens = shootout.isNotEmpty ? ' (pens ${shootScore(0)}-${shootScore(1)})' : '';
+    final s = '$teamA ${score(0)} - ${score(1)} $teamB$pens';
     return finished ? '$s • Full time' : '$s • In progress';
   }
+
+  // ---------------------------------------------------------------- display
+
+  static const typeNames = {
+    'goal': 'Goal',
+    'owngoal': 'Own goal',
+    'yellow': 'Yellow card',
+    'yellow2': 'Second yellow (sent off)',
+    'red': 'Red card',
+    'sub': 'Substitution',
+    'pen_miss': 'Penalty missed',
+    'var': 'VAR',
+    'injury': 'Injury',
+    'shot': 'Shot',
+    'sot': 'Shot on target',
+    'corner': 'Corner',
+    'foul': 'Foul',
+    'offside': 'Offside',
+  };
+
+  /// Key events shown in the timeline (stats-only events are left out).
+  static const keyTypes = {
+    'goal', 'owngoal', 'yellow', 'yellow2', 'red', 'sub', 'pen_miss', 'var', 'injury',
+  };
+
+  /// One-line description of an event ([plain] = no emoji, for reports).
+  String describe(FootballEvent e, {bool plain = false}) {
+    final other = (e.other ?? '').trim();
+    String tag(String emoji, String word) => plain ? word : emoji;
+    switch (e.type) {
+      case 'goal':
+        final pen = e.detail == 'penalty' ? ' (pen)' : '';
+        final assist = other.isNotEmpty ? ' (assist $other)' : '';
+        final dis = e.cancelled ? ' - disallowed' : '';
+        return '${tag('⚽', 'Goal')} ${e.player}$pen$assist$dis';
+      case 'owngoal':
+        return '${tag('⚽', 'Goal')} ${e.player} (own goal)${e.cancelled ? ' - disallowed' : ''}';
+      case 'yellow':
+        return '${tag('🟨', 'Yellow card')} ${e.player}';
+      case 'yellow2':
+        return '${tag('🟨🟥', 'Second yellow / red')} ${e.player}';
+      case 'red':
+        return '${tag('🟥', 'Red card')} ${e.player}';
+      case 'sub':
+        return '${tag('🔁', 'Substitution')}  in: $other   out: ${e.player}';
+      case 'pen_miss':
+        return '${tag('❌', 'Penalty')} ${e.detail ?? 'missed'} - ${e.player}';
+      case 'var':
+        return '${tag('📺', 'VAR')} ${e.detail ?? ''}';
+      case 'injury':
+        return '${tag('🩹', 'Injury')} ${e.player}';
+      default:
+        return typeNames[e.type] ?? e.type;
+    }
+  }
+
+  /// Small status marks next to a player in the line-up.
+  String badges(int t, String p, {bool plain = false}) {
+    final sb = StringBuffer();
+    final g = goalsBy(t, p);
+    if (g > 0) sb.write(plain ? ' G$g' : ' ⚽$g');
+    if (yellowsOf(t, p) > 0) sb.write(plain ? ' Y' : ' 🟨');
+    if (sentOff(t).contains(p)) sb.write(plain ? ' R' : ' 🟥');
+    for (final e in _ev('sub', t)) {
+      if (e.player == p) sb.write(plain ? ' off ${labelFor(e)}' : " ↓${labelFor(e)}'");
+      if (e.other == p) sb.write(plain ? ' on ${labelFor(e)}' : " ↑${labelFor(e)}'");
+    }
+    return sb.toString();
+  }
+
+  /// Plain ASCII match report (copy / PDF).
+  String get reportText {
+    final sb = StringBuffer();
+    if (league.isNotEmpty) sb.writeln(league);
+    sb.writeln('$teamA vs $teamB');
+    sb.writeln(date.toString().substring(0, 16));
+    sb.writeln('$teamA ${score(0)} - ${score(1)} $teamB');
+    if (shootout.isNotEmpty) sb.writeln('Penalties: ${shootScore(0)} - ${shootScore(1)}');
+    sb.writeln(finished ? result : phaseLabel);
+    if (potm != null && potm!.isNotEmpty) sb.writeln('Player of the match: $potm');
+    sb.writeln();
+    sb.writeln('EVENTS');
+    for (final e in events.where((e) => keyTypes.contains(e.type))) {
+      sb.writeln("${labelFor(e).padLeft(6)}'  [${teamAt(e.team)}]  ${describe(e, plain: true)}");
+    }
+    sb.writeln();
+    sb.writeln('STATS${' ' * 22}${teamA.padRight(10).substring(0, 10)}  ${teamB.padRight(10).substring(0, 10)}');
+    void row(String label, Object a, Object b) =>
+        sb.writeln('${label.padRight(27)}${a.toString().padRight(12)}${b.toString()}');
+    row('Goals', score(0), score(1));
+    row('Shots', shots(0), shots(1));
+    row('On target', count('sot', 0), count('sot', 1));
+    row('Corners', count('corner', 0), count('corner', 1));
+    row('Fouls', count('foul', 0), count('foul', 1));
+    row('Offsides', count('offside', 0), count('offside', 1));
+    row('Yellow cards', yellowCards(0), yellowCards(1));
+    row('Red cards', redCards(0), redCards(1));
+    row('Substitutions', subsUsed(0), subsUsed(1));
+    if (possA + possB > 0) row('Possession %', possession(0), possession(1));
+    for (var t = 0; t < 2; t++) {
+      if (!hasLineup(t)) continue;
+      sb.writeln();
+      sb.writeln('${teamAt(t).toUpperCase()} LINE-UP');
+      for (final p in starters(t)) {
+        sb.writeln('  $p${badges(t, p, plain: true)}');
+      }
+      sb.writeln('  Substitutes:');
+      for (final p in bench(t)) {
+        sb.writeln('  $p${badges(t, p, plain: true)}');
+      }
+    }
+    if (shootout.isNotEmpty) {
+      sb.writeln();
+      sb.writeln('PENALTY SHOOTOUT');
+      for (var i = 0; i < shootout.length; i++) {
+        final k = shootout[i];
+        sb.writeln('  ${i + 1}. ${teamAt(k.team)} - ${k.player}: ${k.scored ? 'scored' : 'missed'}');
+      }
+    }
+    return sb.toString();
+  }
+
+  // ------------------------------------------------------------------- json
 
   @override
   Map<String, dynamic> toJson() => {
@@ -584,25 +1016,74 @@ class FootballMatch extends SportMatch {
         'teamB': teamB,
         'date': date.toIso8601String(),
         'seconds': seconds,
-        'period': period,
-        'finished': finished,
+        'phase': phase,
+        'half': halfMinutes,
+        'et': etMinutes,
+        'subs': maxSubs,
+        'ko': knockout,
+        'added': added.map((k, v) => MapEntry('$k', v)),
         'pA': playersA,
         'pB': playersB,
+        'sA': startA,
+        'sB': startB,
+        'bA': benchA,
+        'bB': benchB,
+        'shoot': shootout.map((k) => k.toJson()).toList(),
+        'sf': shootFirst,
+        'possA': possA,
+        'possB': possB,
+        'potm': potm,
+        'lg': league,
+        'capA': captainA,
+        'capB': captainB,
         'events': events.map((e) => e.toJson()).toList(),
       };
 
-  factory FootballMatch.fromJson(Map<String, dynamic> j) => FootballMatch(
-        id: j['id'],
-        teamA: j['teamA'],
-        teamB: j['teamB'],
-        date: DateTime.parse(j['date']),
-        seconds: j['seconds'],
-        period: j['period'],
-        finished: j['finished'],
-        playersA: List<String>.from(j['pA'] ?? const []),
-        playersB: List<String>.from(j['pB'] ?? const []),
-        events: (j['events'] as List)
-            .map((e) => FootballEvent.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
-      );
+  factory FootballMatch.fromJson(Map<String, dynamic> j) {
+    final events = ((j['events'] ?? []) as List)
+        .map((e) => FootballEvent.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+    int phase;
+    if (j['phase'] != null) {
+      phase = j['phase'] as int;
+    } else {
+      // match saved by an older version
+      final fin = j['finished'] == true;
+      final per = ((j['period'] ?? 1) as int).clamp(1, 4).toInt();
+      final secs = (j['seconds'] ?? 0) as int;
+      phase = fin ? 10 : ((secs == 0 && events.isEmpty) ? 0 : const [0, 1, 3, 5, 7][per]);
+    }
+    List<String> ls(String k) => List<String>.from(j[k] ?? const []);
+    return FootballMatch(
+      id: j['id'],
+      teamA: j['teamA'],
+      teamB: j['teamB'],
+      date: DateTime.parse(j['date']),
+      events: events,
+      seconds: (j['seconds'] ?? 0) as int,
+      phase: phase,
+      halfMinutes: (j['half'] ?? 45) as int,
+      etMinutes: (j['et'] ?? 15) as int,
+      maxSubs: (j['subs'] ?? 5) as int,
+      knockout: (j['ko'] ?? false) as bool,
+      added: ((j['added'] ?? {}) as Map)
+          .map((k, v) => MapEntry(int.parse(k.toString()), v as int)),
+      playersA: ls('pA'),
+      playersB: ls('pB'),
+      startA: ls('sA'),
+      startB: ls('sB'),
+      benchA: ls('bA'),
+      benchB: ls('bB'),
+      shootout: ((j['shoot'] ?? []) as List)
+          .map((k) => PenKick.fromJson(Map<String, dynamic>.from(k)))
+          .toList(),
+      shootFirst: (j['sf'] ?? 0) as int,
+      possA: (j['possA'] ?? 0) as int,
+      possB: (j['possB'] ?? 0) as int,
+      potm: j['potm'] as String?,
+      league: (j['lg'] ?? '') as String,
+      captainA: (j['capA'] ?? '') as String,
+      captainB: (j['capB'] ?? '') as String,
+    );
+  }
 }

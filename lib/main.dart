@@ -5,6 +5,7 @@ import 'models.dart';
 import 'storage.dart';
 import 'cricket_screen.dart';
 import 'football_screen.dart';
+import 'football_setup.dart';
 import 'settings_screen.dart';
 import 'teams_screen.dart';
 import 'excel_import.dart';
@@ -195,9 +196,21 @@ class _HomeScreenState extends State<HomeScreen> {
             league: AppState.I.leagueName,
             overs: (int.tryParse(ov.text) ?? 20).clamp(1, 100))
         : FootballMatch(
-            id: SportMatch.newId(), teamA: na, teamB: nb, playersA: pa, playersB: pb);
+            id: SportMatch.newId(),
+            teamA: na,
+            teamB: nb,
+            playersA: pa,
+            playersB: pb,
+            league: AppState.I.leagueName);
     matches.insert(0, m);
     _persist();
+    if (m is FootballMatch) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => FootballSetupScreen(match: m, onChanged: _persist)),
+      );
+      if (!mounted) return;
+    }
     _open(m);
   }
 

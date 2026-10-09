@@ -7,19 +7,27 @@ class MilestoneInfo {
   final int runs, balls, fours, sixes, milestone;
   final double strikeRate;
   final String? photoPath;
+  // optional overrides (used for football goal / hat-trick cards)
+  final String? titleText, bigText, smallText;
+  final List<MapEntry<String, String>>? stats;
   const MilestoneInfo({
     required this.name,
     required this.team,
-    required this.runs,
-    required this.balls,
-    required this.fours,
-    required this.sixes,
-    required this.milestone,
-    required this.strikeRate,
+    this.runs = 0,
+    this.balls = 0,
+    this.fours = 0,
+    this.sixes = 0,
+    this.milestone = 0,
+    this.strikeRate = 0,
     this.photoPath,
+    this.titleText,
+    this.bigText,
+    this.smallText,
+    this.stats,
   });
 
   String get title {
+    if (titleText != null) return titleText!;
     switch (milestone) {
       case 50:
         return 'FIFTY!';
@@ -202,17 +210,21 @@ class _MilestoneAnimState extends State<MilestoneAnim> with SingleTickerProvider
                             crossAxisAlignment: CrossAxisAlignment.baseline,
                             textBaseline: TextBaseline.alphabetic,
                             children: [
-                              _t('${info.runs}', base * 0.2, w: FontWeight.w900),
+                              _t(info.bigText ?? '${info.runs}', base * 0.2, w: FontWeight.w900),
                               SizedBox(width: base * 0.02),
-                              _t('(${info.balls} balls)', base * 0.05, color: Colors.white70),
+                              _t(info.smallText ?? '(${info.balls} balls)', base * 0.05, color: Colors.white70),
                             ],
                           ),
                           SizedBox(height: base * 0.02),
                           Row(mainAxisSize: MainAxisSize.min, children: [
-                            _stat('BALLS', '${info.balls}', base),
-                            _stat('STRIKE RATE', info.strikeRate.toStringAsFixed(1), base),
-                            _stat('FOURS', '${info.fours}', base),
-                            _stat('SIXES', '${info.sixes}', base),
+                            for (final s in (info.stats ??
+                                [
+                                  MapEntry('BALLS', '${info.balls}'),
+                                  MapEntry('STRIKE RATE', info.strikeRate.toStringAsFixed(1)),
+                                  MapEntry('FOURS', '${info.fours}'),
+                                  MapEntry('SIXES', '${info.sixes}'),
+                                ]))
+                              _stat(s.key, s.value, base),
                           ]),
                         ]),
                       ),

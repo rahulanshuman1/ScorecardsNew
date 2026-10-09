@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'app_state.dart';
 import 'milestone_anim.dart';
 
-enum EventKind { six, four, noBall, wide, out, goal, yellow, red, milestone }
+enum EventKind {
+  six, four, noBall, wide, out, goal, yellow, red, milestone,
+  sub, penalty, saved, missed, varCheck, halfTime, fullTime, kickoff,
+}
 
 class _Cfg {
   final String text, emoji;
@@ -32,6 +35,22 @@ _Cfg _cfgFor(EventKind k) {
       return const _Cfg('RED CARD', '🟥', Color(0xFFB71C1C), 0);
     case EventKind.milestone:
       return const _Cfg('MILESTONE', '🏆', Color(0xFF7B1FA2), 0);
+    case EventKind.sub:
+      return const _Cfg('SUBSTITUTION', '🔁', Color(0xFF1565C0), 0);
+    case EventKind.penalty:
+      return const _Cfg('PENALTY!', '🎯', Color(0xFF6A1B9A), 0);
+    case EventKind.saved:
+      return const _Cfg('SAVED!', '🧤', Color(0xFF00897B), 0);
+    case EventKind.missed:
+      return const _Cfg('MISSED!', '❌', Color(0xFFB71C1C), 0);
+    case EventKind.varCheck:
+      return const _Cfg('VAR CHECK', '📺', Color(0xFF263238), 0);
+    case EventKind.halfTime:
+      return const _Cfg('HALF TIME', '⏸', Color(0xFF37474F), 0);
+    case EventKind.fullTime:
+      return const _Cfg('FULL TIME', '🏁', Color(0xFF263238), 0);
+    case EventKind.kickoff:
+      return const _Cfg('KICK OFF', '⚽', Color(0xFF2E7D32), 0);
   }
 }
 

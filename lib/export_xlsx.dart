@@ -86,35 +86,80 @@ List<XSheet> cricketSheets(CricketMatch m) {
 }
 
 List<XSheet> footballSheets(FootballMatch m) {
-  const names = {
-    'goal': 'Goal',
-    'owngoal': 'Own goal',
-    'yellow': 'Yellow card',
-    'red': 'Red card',
-    'sub': 'Substitution',
-  };
-  return [
-    XSheet('Summary', [
-      [_h('Match'), XCell('${m.teamA} vs ${m.teamB}')],
-      [_h('Date'), XCell(m.date.toString().substring(0, 16))],
-      [_h('Score'), XCell('${m.teamA} ${m.score(0)} - ${m.score(1)} ${m.teamB}')],
-      [_h('Status'), XCell(m.finished ? 'Full time' : 'In progress')],
-      [],
-      [_h('Team'), _h('Goals'), _h('Yellow cards'), _h('Red cards'), _h('Substitutions')],
-      [XCell(m.teamA), XCell(m.score(0)), XCell(m.count('yellow', 0)), XCell(m.count('red', 0)), XCell(m.count('sub', 0))],
-      [XCell(m.teamB), XCell(m.score(1)), XCell(m.count('yellow', 1)), XCell(m.count('red', 1)), XCell(m.count('sub', 1))],
-    ]),
-    XSheet('Events', [
-      [_h('Minute'), _h('Team'), _h('Event'), _h('Player')],
-      for (final e in m.events)
-        [
-          XCell(e.minute),
-          XCell(e.team == 0 ? m.teamA : m.teamB),
-          XCell(names[e.type] ?? e.type),
-          XCell(e.player),
-        ],
-    ]),
+  const periods = ['', '1st half', '', '2nd half', '', 'Extra time 1', '', 'Extra time 2'];
+  final sheets = <XSheet>[];
+
+  sheets.add(XSheet('Summary', [
+    [_h('League'), XCell(m.league.isEmpty ? '-' : m.league)],
+    [_h('Match'), XCell('${m.teamA} vs ${m.teamB}')],
+    [_h('Date'), XCell(m.date.toString().substring(0, 16))],
+    [_h('Score'), XCell('${m.teamA} ${m.score(0)} - ${m.score(1)} ${m.teamB}')],
+    if (m.shootout.isNotEmpty)
+      [_h('Penalties'), XCell('${m.shootScore(0)} - ${m.shootScore(1)}')],
+    [_h('Result'), XCell(m.finished ? m.result : m.phaseLabel)],
+    [_h('Half length (min)'), XCell(m.halfMinutes)],
+    [_h('Substitutions allowed'), XCell(m.maxSubs)],
+    [_h('Knockout'), XCell(m.knockout ? 'Yes' : 'No')],
+    [_h('Player of the match'), XCell(m.potm ?? '-')],
+  ]));
+
+  sheets.add(XSheet('Statistics', [
+    [_h('Statistic'), _h(m.teamA), _h(m.teamB)],
+    [XCell('Goals'), XCell(m.score(0)), XCell(m.score(1))],
+    [XCell('Shots'), XCell(m.shots(0)), XCell(m.shots(1))],
+    [XCell('Shots on target'), XCell(m.count('sot', 0)), XCell(m.count('sot', 1))],
+    [XCell('Corners'), XCell(m.count('corner', 0)), XCell(m.count('corner', 1))],
+    [XCell('Fouls'), XCell(m.count('foul', 0)), XCell(m.count('foul', 1))],
+    [XCell('Offsides'), XCell(m.count('offside', 0)), XCell(m.count('offside', 1))],
+    [XCell('Yellow cards'), XCell(m.yellowCards(0)), XCell(m.yellowCards(1))],
+    [XCell('Red cards'), XCell(m.redCards(0)), XCell(m.redCards(1))],
+    [XCell('Substitutions'), XCell(m.subsUsed(0)), XCell(m.subsUsed(1))],
+    if (m.possA + m.possB > 0)
+      [XCell('Possession %'), XCell(m.possession(0)), XCell(m.possession(1))],
+  ]));
+
+  final lineRows = <List<XCell>>[
+    [_h('Team'), _h('Role'), _h('Player'), _h('Goals'), _h('Cards / changes')],
   ];
+  for (var t = 0; t < 2; t++) {
+    for (final p in m.starters(t)) {
+      lineRows.add([XCell(m.teamAt(t)), XCell('Starter'), XCell(p), XCell(m.goalsBy(t, p)),
+          XCell(m.badges(t, p, plain: true).trim())]);
+    }
+    for (final p in m.bench(t)) {
+      lineRows.add([XCell(m.teamAt(t)), XCell('Substitute'), XCell(p), XCell(m.goalsBy(t, p)),
+          XCell(m.badges(t, p, plain: true).trim())]);
+    }
+  }
+  sheets.add(XSheet('Line-ups', lineRows));
+
+  sheets.add(XSheet('Events', [
+    [_h('Minute'), _h('Period'), _h('Team'), _h('Event'), _h('Player'), _h('Assist / player on'), _h('Notes')],
+    for (final e in m.events)
+      [
+        XCell("${m.labelFor(e)}'"),
+        XCell(periods[e.period.clamp(0, 7).toInt()]),
+        XCell(e.type == 'var' ? '-' : m.teamAt(e.team)),
+        XCell(FootballMatch.typeNames[e.type] ?? e.type),
+        XCell(e.player),
+        XCell(e.other ?? ''),
+        XCell(e.cancelled ? 'Disallowed' : (e.detail ?? '')),
+      ],
+  ]));
+
+  if (m.shootout.isNotEmpty) {
+    sheets.add(XSheet('Shootout', [
+      [_h('#'), _h('Team'), _h('Player'), _h('Result')],
+      for (var i = 0; i < m.shootout.length; i++)
+        [
+          XCell(i + 1),
+          XCell(m.teamAt(m.shootout[i].team)),
+          XCell(m.shootout[i].player),
+          XCell(m.shootout[i].scored ? 'Scored' : (m.shootout[i].detail ?? 'Missed')),
+        ],
+    ]));
+  }
+  return sheets;
 }
 
 Future<void> exportMatch(BuildContext context, SportMatch m) async {
