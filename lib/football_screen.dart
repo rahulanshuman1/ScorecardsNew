@@ -575,6 +575,17 @@ class _FootballScreenState extends State<FootballScreen> {
         league: m.league.isEmpty ? null : m.league);
   }
 
+  /// Choose what to present: both teams (VS) or a single team with its captain.
+  Future<void> _teamsChooser() async {
+    final i = await _choose('Show on screen', ['Both teams (VS)', m.teamA, m.teamB]);
+    if (i == null) return;
+    if (i == 0) {
+      await _showBoth();
+    } else {
+      await _showTeam(i - 1);
+    }
+  }
+
   Future<void> _announceWinner() async {
     if (!mounted || !m.finished) return;
     final w = m.winnerIdx;
@@ -695,7 +706,7 @@ class _FootballScreenState extends State<FootballScreen> {
             varCheck: _varCheck,
             league: _showLeague,
             editLeague: _editLeague,
-            teams: _showBoth,
+            teams: _teamsChooser,
             winner: _announceWinner,
             fullScreen: FullScreen.I.toggle,
             exit: _exitTv,
@@ -724,7 +735,7 @@ class _FootballScreenState extends State<FootballScreen> {
                 _editLeague();
                 break;
               case 'teams':
-                _showBoth();
+                _teamsChooser();
                 break;
               case 'setup':
                 _setup();
@@ -751,10 +762,9 @@ class _FootballScreenState extends State<FootballScreen> {
               const PopupMenuItem(value: 'winner', child: Text('Show winner')),
             const PopupMenuItem(value: 'league', child: Text('Show league name')),
             const PopupMenuItem(value: 'editleague', child: Text('Edit league name')),
-            if (m.preMatch) ...[
-              const PopupMenuItem(value: 'teams', child: Text('Show both teams')),
+            const PopupMenuItem(value: 'teams', child: Text('Show teams')),
+            if (m.preMatch)
               const PopupMenuItem(value: 'setup', child: Text('Match setup & line-ups')),
-            ],
             if (m.finished) const PopupMenuItem(value: 'potm', child: Text('Player of the match')),
             PopupMenuItem(
               value: 'all',
@@ -1089,6 +1099,11 @@ class _FootballScreenState extends State<FootballScreen> {
         icon: const Icon(Icons.undo),
         label: const Text('Undo'),
       ),
+      OutlinedButton.icon(
+        onPressed: _teamsChooser,
+        icon: const Icon(Icons.groups),
+        label: const Text('Show teams'),
+      ),
       if (m.finished && m.winnerIdx >= 0)
         FilledButton.tonalIcon(
           onPressed: _announceWinner,
@@ -1175,6 +1190,9 @@ class _FootballScreenState extends State<FootballScreen> {
         group('CHANGES', [
           b('Substitution', Icons.swap_horiz, en ? () => _sub(t) : null),
           b('Injury', Icons.healing, en ? () => _injury(t) : null),
+        ]),
+        group('PRESENTATION', [
+          b('Show team', Icons.groups, () => _showTeam(t)),
         ]),
         group('MATCH STATS', [
           b('Shot', Icons.my_location, en ? () => _quick('shot', t) : null),

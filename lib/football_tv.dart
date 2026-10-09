@@ -653,7 +653,7 @@ class FootballTvBoard extends StatelessWidget {
               onPressed: act.editLeague,
               icon: const Icon(Icons.edit),
             ),
-            if (m.preMatch) o('Show teams', Icons.groups, act.teams),
+            o('Show teams', Icons.groups, act.teams),
             if (m.finished && m.winnerIdx >= 0)
               FilledButton.icon(
                 style: FilledButton.styleFrom(
