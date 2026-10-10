@@ -8,7 +8,8 @@ import 'intro_screen.dart' show TeamCard;
 import 'models.dart';
 
 class FootballTvActions {
-  final void Function(int team) goal, penalty, yellow, red, sub;
+  final void Function(int team) goal, penalty, yellow, red, sub, own, injury;
+  final void Function(String type, int team) quick; // shot, sot, corner, foul, offside
   final VoidCallback primary,
       alt,
       toggleClock,
@@ -28,6 +29,9 @@ class FootballTvActions {
     required this.yellow,
     required this.red,
     required this.sub,
+    required this.own,
+    required this.injury,
+    required this.quick,
     required this.primary,
     required this.alt,
     required this.toggleClock,
@@ -435,7 +439,7 @@ class FootballTvBoard extends StatelessWidget {
                 width: 520,
                 child: Column(children: [
                   _cmp('SHOTS', m.shots(0), m.shots(1), 1),
-                  _cmp('ON TARGET', m.count('sot', 0), m.count('sot', 1), 1),
+                  _cmp('ON TARGET', m.onTarget(0), m.onTarget(1), 1),
                   _cmp('CORNERS', m.count('corner', 0), m.count('corner', 1), 1),
                   _cmp('FOULS', m.count('foul', 0), m.count('foul', 1), 1),
                   _cmp('OFFSIDES', m.count('offside', 0), m.count('offside', 1), 1),
@@ -539,7 +543,7 @@ class FootballTvBoard extends StatelessWidget {
           _mini('ON PITCH', '${m.onPitchCount(0)} v ${m.onPitchCount(1)}', u),
           _mini('SUBS USED', '${m.subsUsed(0)}/${m.subsAllowed}  •  ${m.subsUsed(1)}/${m.subsAllowed}', u),
           _mini('SHOTS (ON TARGET)',
-              '${m.shots(0)} (${m.count('sot', 0)})  -  ${m.shots(1)} (${m.count('sot', 1)})', u),
+              '${m.shots(0)} (${m.onTarget(0)})  -  ${m.shots(1)} (${m.onTarget(1)})', u),
           _mini('CORNERS', '${m.count('corner', 0)} - ${m.count('corner', 1)}', u),
           _mini('FOULS', '${m.count('foul', 0)} - ${m.count('foul', 1)}', u),
         ]),
@@ -588,6 +592,44 @@ class FootballTvBoard extends StatelessWidget {
               b('🟨', en ? () => act.yellow(t) : null, bg: const Color(0xFFF9A825), fg: Colors.black),
               b('🟥', en ? () => act.red(t) : null, bg: const Color(0xFFC62828)),
               b('🔁 Sub', en ? () => act.sub(t) : null, bg: const Color(0xFF455A64)),
+            ]),
+            SizedBox(height: 6 * cu),
+            // match statistics: one tap each (they feed Shots / On target / Corners / Fouls / Offsides)
+            Wrap(spacing: 5 * cu, runSpacing: 5 * cu, alignment: WrapAlignment.center, children: [
+              for (final s in const [
+                ['Shot', 'shot'],
+                ['On target', 'sot'],
+                ['Corner', 'corner'],
+                ['Foul', 'foul'],
+                ['Offside', 'offside'],
+              ])
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: Colors.white.withAlpha(110)),
+                    minimumSize: Size(44 * cu, 36 * cu),
+                    padding: EdgeInsets.symmetric(horizontal: 10 * cu),
+                  ),
+                  onPressed: en ? () => act.quick(s[1], t) : null,
+                  child: Text(s[0],
+                      style: TextStyle(fontSize: 13 * cu, fontWeight: FontWeight.w700)),
+                ),
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                enabled: en,
+                icon: Icon(Icons.more_horiz, color: Colors.white, size: 22 * cu),
+                onSelected: (v) {
+                  if (v == 'own') {
+                    act.own(t);
+                  } else {
+                    act.injury(t);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'own', child: Text('Own goal')),
+                  PopupMenuItem(value: 'injury', child: Text('Injury')),
+                ],
+              ),
             ]),
           ]),
         );

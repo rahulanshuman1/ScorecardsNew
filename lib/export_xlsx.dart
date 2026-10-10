@@ -107,7 +107,7 @@ List<XSheet> footballSheets(FootballMatch m) {
     [_h('Statistic'), _h(m.teamA), _h(m.teamB)],
     [XCell('Goals'), XCell(m.score(0)), XCell(m.score(1))],
     [XCell('Shots'), XCell(m.shots(0)), XCell(m.shots(1))],
-    [XCell('Shots on target'), XCell(m.count('sot', 0)), XCell(m.count('sot', 1))],
+    [XCell('Shots on target'), XCell(m.onTarget(0)), XCell(m.onTarget(1))],
     [XCell('Corners'), XCell(m.count('corner', 0)), XCell(m.count('corner', 1))],
     [XCell('Fouls'), XCell(m.count('foul', 0)), XCell(m.count('foul', 1))],
     [XCell('Offsides'), XCell(m.count('offside', 0)), XCell(m.count('offside', 1))],

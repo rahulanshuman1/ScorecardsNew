@@ -761,7 +761,10 @@ class FootballMatch extends SportMatch {
       events.where((e) => e.type == type && e.team == t && !e.cancelled).length;
   int yellowCards(int t) => count('yellow', t) + count('yellow2', t);
   int redCards(int t) => count('red', t) + count('yellow2', t);
-  int shots(int t) => count('shot', t) + count('sot', t);
+  /// Goals are shots on target too, so they are added to the manual 'on target' taps.
+  int onTarget(int t) =>
+      count('sot', t) + events.where((e) => e.type == 'goal' && !e.cancelled && e.team == t).length;
+  int shots(int t) => count('shot', t) + onTarget(t);
   int possession(int t) {
     final tot = possA + possB;
     if (tot == 0) return 0;
@@ -975,7 +978,7 @@ class FootballMatch extends SportMatch {
         sb.writeln('${label.padRight(27)}${a.toString().padRight(12)}${b.toString()}');
     row('Goals', score(0), score(1));
     row('Shots', shots(0), shots(1));
-    row('On target', count('sot', 0), count('sot', 1));
+    row('On target', onTarget(0), onTarget(1));
     row('Corners', count('corner', 0), count('corner', 1));
     row('Fouls', count('foul', 0), count('foul', 1));
     row('Offsides', count('offside', 0), count('offside', 1));
