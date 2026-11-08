@@ -291,9 +291,9 @@ class CricketTvBoard extends StatelessWidget {
                 flex: 5,
                 child: Column(children: [
                   _battersCard(u),
-                  SizedBox(height: 14 * u),
+                  SizedBox(height: 10 * u),
                   _bowlerCard(u),
-                  SizedBox(height: 14 * u),
+                  SizedBox(height: 10 * u),
                   Expanded(child: _barsCard(u)),
                 ]),
               ),
@@ -476,16 +476,16 @@ class CricketTvBoard extends StatelessWidget {
   Widget _battersCard(double u) {
     final i = m.now;
     Widget row(String? name, bool strike) {
-      if (name == null) return SizedBox(height: 66 * u);
+      if (name == null) return const SizedBox.shrink();
       final s = _bat(i, name);
       return Padding(
-        padding: EdgeInsets.symmetric(vertical: 6 * u),
+        padding: EdgeInsets.symmetric(vertical: 4 * u),
         child: Row(children: [
           SizedBox(
             width: 26 * u,
-            child: strike ? Icon(Icons.arrow_right, color: _gold, size: 34 * u) : null,
+            child: strike ? Icon(Icons.arrow_right, color: _gold, size: 30 * u) : null,
           ),
-          _avatar(m.battingTeam, name, 54 * u),
+          _avatar(m.battingTeam, name, 46 * u),
           SizedBox(width: 14 * u),
           Expanded(child: _t(name, 26 * u, w: strike ? _heavy : _mid)),
           _col('${s?.runs ?? 0}', 34 * u, 64 * u, color: strike ? _gold : null, w: _heavy),
@@ -506,6 +506,7 @@ class CricketTvBoard extends StatelessWidget {
         row(i.striker, true),
         row(i.nonStriker, false),
       ]),
+      pad: EdgeInsets.fromLTRB(20 * u, 14 * u, 20 * u, 10 * u),
     );
   }
 
@@ -522,13 +523,13 @@ class CricketTvBoard extends StatelessWidget {
           MapEntry('O', 64), MapEntry('R', 52), MapEntry('W', 52), MapEntry('ECON', 78),
         ], u),
         if (i.bowler == null)
-          SizedBox(height: 66 * u, child: Center(child: _t('—', 26 * u, color: Colors.white54)))
+          SizedBox(height: 40 * u, child: Center(child: _t('—', 26 * u, color: Colors.white54)))
         else
           Padding(
-            padding: EdgeInsets.symmetric(vertical: 6 * u),
+            padding: EdgeInsets.symmetric(vertical: 4 * u),
             child: Row(children: [
               SizedBox(width: 26 * u),
-              _avatar(m.bowlingTeam, i.bowler!, 54 * u),
+              _avatar(m.bowlingTeam, i.bowler!, 46 * u),
               SizedBox(width: 14 * u),
               Expanded(child: _t(i.bowler!, 26 * u, w: _heavy)),
               _col(bw?.overs ?? '0.0', 26 * u, 64 * u, w: _heavy),
@@ -537,13 +538,14 @@ class CricketTvBoard extends StatelessWidget {
               _col((bw?.econ ?? 0).toStringAsFixed(2), 22 * u, 78 * u, color: Colors.white70),
             ]),
           ),
-        Divider(color: Colors.white.withAlpha(30), height: 18 * u),
+        Divider(color: Colors.white.withAlpha(30), height: 12 * u),
         Row(children: [
           _t('LAST WICKET', 13 * u, color: Colors.white54, ls: 3 * u, w: FontWeight.w700),
           SizedBox(width: 14 * u),
           Expanded(child: _t(_lastWicket(i), 18 * u, color: Colors.white70)),
         ]),
       ]),
+      pad: EdgeInsets.fromLTRB(20 * u, 14 * u, 20 * u, 10 * u),
     );
   }
 
@@ -562,7 +564,7 @@ class CricketTvBoard extends StatelessWidget {
           ),
         ),
       ]),
-      pad: EdgeInsets.fromLTRB(20 * u, 16 * u, 20 * u, 10 * u),
+      pad: EdgeInsets.fromLTRB(20 * u, 12 * u, 20 * u, 8 * u),
     );
   }
 
@@ -1079,11 +1081,19 @@ class _OverBars extends CustomPainter {
     for (final r in rows) {
       if (r.runs > maxRuns) maxRuns = r.runs;
     }
-    final labelH = 22 * u;
-    final topPad = 38 * u; // room for the run label and the wicket marker above the tallest bar
+    final hasWk = rows.any((r) => r.wk > 0);
+    final labelH = 18 * u; // over numbers under the axis
+    var showVals = slots <= 25; // run total above each bar
+    // room above the tallest bar for the run label and the wicket marker
+    double topPadFor(bool vals) => (vals ? 15 * u : 0) + (hasWk ? 20 * u : 0) + 5 * u;
+    var topPad = topPadFor(showVals);
+    if (size.height - labelH - topPad < 34 * u) {
+      showVals = false; // chart is short: keep the bars readable instead
+      topPad = topPadFor(false);
+    }
     final slotW = size.width / slots;
     final barW = slotW * 0.62;
-    final chartH = size.height - labelH - topPad;
+    final chartH = math.max(12.0, size.height - labelH - topPad);
     final every = slots <= 20 ? 1 : 5;
     canvas.drawLine(
       Offset(0, topPad + chartH),
@@ -1110,8 +1120,8 @@ class _OverBars extends CustomPainter {
         rect,
         Paint()..color = r.index == curIdx ? color.withAlpha(140) : color,
       );
-      if (slots <= 25 && r.runs > 0) {
-        _text(canvas, '${r.runs}', Offset(cx, topPad + chartH - h - 10 * u), 12 * u, Colors.white,
+      if (showVals && r.runs > 0) {
+        _text(canvas, '${r.runs}', Offset(cx, topPad + chartH - h - 8 * u), 11.5 * u, Colors.white,
             bold: true);
       }
       if (r.wk > 0) {
@@ -1119,7 +1129,7 @@ class _OverBars extends CustomPainter {
         // drawn outside the chart, however many wickets fall in a single over.
         final barTop = topPad + chartH - h;
         final rad = 8.5 * u;
-        final my = math.max(rad + 1, barTop - (slots <= 25 ? 28 : 13) * u);
+        final my = math.max(rad + 1, barTop - (showVals ? 27 : 13) * u);
         canvas.drawCircle(Offset(cx, my), rad, Paint()..color = const Color(0xFFE53935));
         _text(canvas, r.wk > 1 ? '${r.wk}' : 'W', Offset(cx, my), 10.5 * u, Colors.white,
             bold: true);
