@@ -1080,7 +1080,7 @@ class _OverBars extends CustomPainter {
       if (r.runs > maxRuns) maxRuns = r.runs;
     }
     final labelH = 22 * u;
-    final topPad = 22 * u;
+    final topPad = 38 * u; // room for the run label and the wicket marker above the tallest bar
     final slotW = size.width / slots;
     final barW = slotW * 0.62;
     final chartH = size.height - labelH - topPad;
@@ -1114,12 +1114,15 @@ class _OverBars extends CustomPainter {
         _text(canvas, '${r.runs}', Offset(cx, topPad + chartH - h - 10 * u), 12 * u, Colors.white,
             bold: true);
       }
-      for (var w = 0; w < r.wk; w++) {
-        canvas.drawCircle(
-          Offset(cx, topPad + chartH - h - (slots <= 25 ? 24 : 10) * u - w * 11 * u),
-          4.5 * u,
-          Paint()..color = const Color(0xFFE53935),
-        );
+      if (r.wk > 0) {
+        // One marker per over (number = wickets in that over) - never stacked, never
+        // drawn outside the chart, however many wickets fall in a single over.
+        final barTop = topPad + chartH - h;
+        final rad = 8.5 * u;
+        final my = math.max(rad + 1, barTop - (slots <= 25 ? 28 : 13) * u);
+        canvas.drawCircle(Offset(cx, my), rad, Paint()..color = const Color(0xFFE53935));
+        _text(canvas, r.wk > 1 ? '${r.wk}' : 'W', Offset(cx, my), 10.5 * u, Colors.white,
+            bold: true);
       }
     }
   }
